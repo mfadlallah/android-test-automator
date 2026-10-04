@@ -519,6 +519,46 @@ def assertion_crop_bounds(obs,step):
             first=min(direct,key=lambda node:
                       (max(node['bounds'][1],y1),node['bounds'][0]))
             fx1,fy1,fx2,fy2=first['bounds']
+
+            # For contains/not_contains assertions, try to find and tightly crop
+            # the specific label within the first item instead of the entire item.
+            # This keeps small badges like "Ad" visually prominent and accurate.
+            if step.get('capability') in {'assert_contains','assert_not_contains'}:
+                expected_label=' '.join(
+                    str(step.get('value','')).split()).casefold()
+
+                # Search OCR rows that overlap the first item for the expected label
+                label_bounds=None
+                for row in obs.get('ocr',[]):
+                    ocr_x1,ocr_y1,ocr_x2,ocr_y2=row.get('bounds',[0,0,0,0])
+                    ocr_text=' '.join(row.get('text','').split()).casefold()
+                    # Check if OCR is within first item bounds
+                    if (ocr_x2>fx1 and ocr_x1<fx2 and ocr_y2>fy1 and ocr_y1<fy2
+                            and ocr_text==expected_label):
+                        label_bounds=[ocr_x1,ocr_y1,ocr_x2,ocr_y2]
+                        break
+
+                # Also search accessibility nodes within first item for the label
+                if not label_bounds:
+                    for node in obs.get('nodes',[]):
+                        node_x1,node_y1,node_x2,node_y2=node.get('bounds',[0,0,0,0])
+                        node_text=node.get('text','')
+                        node_desc=node.get('description','')
+                        node_label=' '.join(str(node_text).split()).casefold()
+                        # Check if node is within first item bounds
+                        if (node_x2>fx1 and node_x1<fx2 and node_y2>fy1 and node_y1<fy2
+                                and node_label==expected_label):
+                            label_bounds=[node_x1,node_y1,node_x2,node_y2]
+                            break
+
+                # If found, create tight crop around the label with padding
+                if label_bounds:
+                    lx1,ly1,lx2,ly2=label_bounds
+                    padding_h=max(8,round((lx2-lx1)*0.15))  # 15% horizontal padding
+                    padding_v=max(6,round((ly2-ly1)*0.20))  # 20% vertical padding
+                    return [max(0,lx1-padding_h),max(0,ly1-padding_v),
+                            min(width,lx2+padding_h),min(height,ly2+padding_v)]
+
             return [max(0,fx1,x1),max(0,fy1,y1),
                     min(width,fx2,x2),min(height,fy2,y2)]
         return [max(0,x1),max(0,y1),min(width,x2),
