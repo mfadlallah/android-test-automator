@@ -1,0 +1,24 @@
+TestRail ID: 33271747
+Title: Verify that toggling from row view to card view will display card view
+
+Preconditions:
+- The app is installed and the user is already logged in.
+- Home is displayed after launch.
+- The test transition starts from row view.
+
+Automation setup:
+- If Restaurants opens in card view, switch to row view and verify it first.
+- Do not count this setup action as the tested row-to-card transition.
+
+Steps:
+1. Tap the Restaurants label on Home (or المطاعم in Arabic).
+2. Recover safely from any optional foreground sheet.
+3. Verify that row view (right toggle option) is selected.
+4. Tap card view (left toggle option).
+5. Verify that restaurant items change from row view to card view.
+6. Scroll down within the vertical restaurant list.
+
+Expected result:
+- Card view remains selected.
+- Restaurant items are displayed in card view.
+- The list scrolls and reveals moved or additional restaurant content.
