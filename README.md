@@ -1,0 +1,565 @@
+# Mobile AI Testing Agent — Local Plan-Driven PoC
+
+This proof of concept executes human-written Android test cases on a real
+device while keeping AI inference local. A test case remains plain text; a
+local Ollama model compiles it into a bounded JSON execution plan. Generic
+capabilities execute that plan using UIAutomator hierarchy, screenshots, Apple
+Vision OCR, deterministic safety gates, and ADB.
+
+The design deliberately separates two concerns:
+
+- **AI decides intent:** translate the test case, understand unfamiliar UI,
+  ground semantic targets, and suggest recovery.
+- **Deterministic code controls effects:** validate the plan, constrain actions,
+  execute ADB, limit retries, and require evidence before `PASSED`.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    TC[Plain-text test case] --> PC[Local AI plan compiler]
+    PC --> VP[Schema and safety validation]
+    VP --> EP[Structured execution plan]
+
+    EP --> OR[Orchestrator]
+    OR --> OB[Current-screen observation]
+    OB --> UI[UIAutomator hierarchy]
+    OB --> OCR[Apple Vision OCR]
+    OB --> SS[Screenshot]
+
+    UI --> GR[Semantic grounding]
+    OCR --> GR
+    SS --> AI[Local visual assessment]
+    AI --> GR
+
+    GR --> CR[Capability registry]
+    CR --> SG[Deterministic safety guardrails]
+    SG -->|approved| ADB[ADB executor]
+    SG -->|unsafe or uncertain| BL[BLOCKED with evidence]
+    ADB --> OB
+
+    OB --> VR[Deterministic observed verification]
+    VR -->|incomplete| OR
+    VR -->|unexpected optional UI| RC[Bounded recovery]
+    RC --> OR
+    VR -->|all required evidence| PS[PASSED]
+```
+
+## Why this is plan-driven
+
+The runner no longer parses TestRail titles such as “card view to row view” in
+Python. The local model converts the complete plain-text case into capabilities
+with explicit roles and success conditions.
+
+Example input:
+
+```text
+Open Restaurants.
+Ensure row view is selected using the right toggle option.
+Change to card view using the left toggle option.
+Verify that restaurant items change layout.
+Scroll down the restaurant list.
+```
+
+Example compiled plan:
+
+```json
+{
+  "version": 1,
+  "name": "Row view to card view",
+  "steps": [
+    {
+      "id": "open-restaurants",
+      "capability": "tap",
+      "role": "action",
+      "target": "Restaurants",
+      "hints": ["restaurants", "restaurantsVertical"],
+      "value": "",
+      "position": "none",
+      "direction": "none",
+      "optional": false,
+      "success": "Restaurants listing is visible"
+    },
+    {
+      "id": "recover",
+      "capability": "recover_optional",
+      "role": "recovery",
+      "target": "",
+      "hints": [],
+      "value": "",
+      "position": "none",
+      "direction": "none",
+      "optional": true,
+      "success": "Foreground is unobstructed"
+    },
+    {
+      "id": "setup-row",
+      "capability": "set_control",
+      "role": "setup",
+      "target": "listing layout",
+      "hints": ["layout", "toggle"],
+      "value": "row",
+      "position": "right",
+      "direction": "none",
+      "optional": false,
+      "success": "Initial row layout is established"
+    },
+    {
+      "id": "select-card",
+      "capability": "set_control",
+      "role": "action",
+      "target": "listing layout",
+      "hints": ["layout", "toggle"],
+      "value": "card",
+      "position": "left",
+      "direction": "none",
+      "optional": false,
+      "success": "Card layout is requested"
+    },
+    {
+      "id": "verify-layout",
+      "capability": "assert_changed",
+      "role": "assertion",
+      "target": "restaurant items",
+      "hints": ["restaurant", "vendor"],
+      "value": "",
+      "position": "none",
+      "direction": "none",
+      "optional": false,
+      "success": "Restaurant-item geometry changed"
+    },
+    {
+      "id": "scroll-list",
+      "capability": "scroll",
+      "role": "action",
+      "target": "restaurant list",
+      "hints": ["vendorsRecycler", "recycler"],
+      "value": "",
+      "position": "none",
+      "direction": "down",
+      "optional": false,
+      "success": "The list moved"
+    },
+    {
+      "id": "verify-scroll",
+      "capability": "assert_scrolled",
+      "role": "assertion",
+      "target": "restaurant list",
+      "hints": ["vendorsRecycler", "recycler"],
+      "value": "",
+      "position": "none",
+      "direction": "none",
+      "optional": false,
+      "success": "Moved or additional restaurant content is visible"
+    }
+  ]
+}
+```
+
+The compiled plan is saved as `plan.json` in every run artifact directory.
+If deterministic validation finds a malformed semantic field, the compiler
+returns the exact validation error to the local model and allows up to two
+bounded JSON-repair attempts. Device execution never starts until one complete
+plan passes validation.
+
+For two-option controls, the capability also extracts explicit vocabulary
+such as `row view (right toggle option)` and `card view (left toggle option)`.
+This produces the deterministic mapping `right=row` and `left=card`, which can
+fill a model-omitted `value` or `position` without parsing a TestRail title or
+hard-coding product-specific state names. No relationship is inferred when the
+plain text does not explicitly associate the state and side.
+
+The compiler also validates relationships across steps. An explicit
+`from row view to card view` transition binds setup to `row/right` and the
+tested action to `card/left`, even if a small local model puts those values in
+the wrong JSON fields. Non-applicable fields are cleared, both control steps
+are bound to one control, and every `scroll`/`set_control` receives a required
+observed assertion before the plan is considered executable.
+The relationship is bidirectional: when the plain text explicitly requests a
+scroll and the model emits only `assert_scrolled`, the compiler restores the
+missing `scroll` action immediately before that assertion. An orphan
+`assert_scrolled` can therefore never make execution pass or block late.
+
+## Semantic target grounding
+
+Test authors should use the visible label and may include stable keywords that
+also appear in Android view IDs. The local planner preserves these terms in a
+step's `hints` array. The executor resolves a target in this strict order:
+
+1. Exact visible hierarchy `text`.
+2. Exact accessibility `content-description`.
+3. Semantic match against the `resource-id` suffix.
+4. Exact on-screen OCR label when the view is not exposed to UIAutomator.
+5. Block when the remaining candidates are missing, weak, or ambiguous.
+
+Resource matching splits both `camelCase` and `snake_case`. For example,
+`restaurants vertical` can match `homeRestaurantsVertical`, and an explicit
+`vendorsRecycler` hint can ground the restaurant list. A resource ID is never
+treated as proof of success by itself; destination/layout/scroll assertions
+still require observed evidence.
+
+## Capability registry
+
+The current safe plan schema accepts these reusable capabilities:
+
+| Capability | Purpose | Verification |
+| --- | --- | --- |
+| `tap` | Tap a semantic target such as `Restaurants` | Destination is observed |
+| `recover_optional` | Handle optional foreground interruptions | Interruption disappears |
+| `set_control` | Establish or change a segmented/toggle value | Later UI change assertion |
+| `assert_changed` | Require target-region geometry/content change | OCR before/after comparison |
+| `scroll` | Scroll a named container in a direction | ADB action on grounded list/region |
+| `assert_scrolled` | Require movement or new content | OCR movement/new-content comparison |
+| `assert_visible` | Require a pill, sheet, option, or list | Hierarchy/OCR/visual grounding |
+| `assert_contains` | Require scoped content such as first item containing `Ad` | Scoped observed value |
+| `assert_not_contains` | Require scoped content to exclude a value | Scoped negative evidence |
+| `assert_selected` | Require an option's selected state | Hierarchy/visual state evidence |
+| `assert_hidden` | Require a sheet or target to disappear | Current-screen absence evidence |
+| `wait_changed` | Wait for refreshed content to stabilize | Before/after content evidence |
+
+`set_control` setup is idempotent: the runner taps the required initial option
+whether or not it is already selected. If already selected, the tap is a no-op;
+otherwise it establishes the precondition. The test action then taps the target
+option and must produce an observed layout change. This does not depend on
+highlight color, theme, or an AI-selected-state guess.
+
+## Adding test cases
+
+Create another `.txt` file under `cases/` and run it with `--case`:
+
+```bash
+python3 -m src.main --case cases/my-new-case.txt
+```
+
+No Python change is required when the new test can be expressed using the
+existing capabilities. Change the targets, values, order, optional recovery,
+assertions, and scroll direction in plain text; the local planner produces the
+new plan.
+
+A code change is required only when the product needs a genuinely new reusable
+interaction capability, for example text entry, a date picker, map gestures,
+drag-and-drop, or a payment-specific assertion. That capability should be
+implemented once and then reused by future plain-text cases. It must never be
+implemented as a TestRail-ID-specific branch.
+
+### Inspect a plan without touching the device
+
+```bash
+python3 -m src.main \
+  --case cases/33271747-row-to-card.txt \
+  --plan-only
+```
+
+Use this before execution when authoring a new case. It calls only the local
+Ollama model, validates the returned schema, prints the plan, and performs no
+ADB action.
+
+## Supported TestRail cases
+
+| TestRail ID | Case file | Setup state | Tested target |
+| --- | --- | --- | --- |
+| `33271746` | `cases/33271746-card-to-row.txt` | Card / left | Row / right |
+| `33271747` | `cases/33271747-row-to-card.txt` | Row / right | Card / left |
+| `33271749` | `cases/33271749-sort-restaurants-list.txt` | Ad visible before filtering | Rating low-to-high; first item has no Ad |
+
+They are independent because each plan establishes its initial control state
+idempotently before executing the tested transition:
+
+```bash
+python3 -m src.main --case cases/33271746-card-to-row.txt
+python3 -m src.main --case cases/33271747-row-to-card.txt
+python3 -m src.main --case cases/33271749-sort-restaurants-list.txt
+```
+
+Cases with scoped assertions or multiple semantic taps use the sequential
+executor. It advances one validated plan step at a time: deterministic
+label/resource/OCR grounding performs actions, while the local vision model
+performs read-only scoped assertions. Negative assertions require the target
+container itself to be visible, and the run cannot pass until every required
+step has evidence. The two layout-transition cases continue to use their
+hardened layout adapter.
+
+After a verified optional sheet is dismissed by either Android Back or a
+grounded close-button tap, the sequential executor temporarily tolerates an
+unavailable accessibility hierarchy and continues from screenshot/OCR. The
+fallback remains active only while hierarchy is unavailable; ordinary taps do
+not authorize it.
+
+Recovery has a screen-independent safety invariant: one recovery step may not
+issue a second ungrounded Android Back after any verified dismiss action. A
+stacked dialog is handled only when it independently exposes a grounded node,
+OCR dismiss target, or visually grounded close icon. This prevents a false
+optional-dialog assessment from navigating away from the destination screen.
+
+SDK in-app promotions are content-independent recovery events. Hierarchy
+markers such as `braze`, `appboy`, or `in_app_message` allow deterministic
+close-control grounding at any sequential-plan step. Image/WebView promotions
+that expose no hierarchy modal may use vision only for an unmistakable X in a
+conservative outer top-corner band of a centered, dim-background overlay;
+Android Back and promotional CTAs are never accepted for this recovery.
+
+AI assertion results also pass through semantic evidence validation. Assertions
+about a named pill, sheet, label, button, option, or exact contained value are
+rejected when the returned evidence discusses an unrelated screen element.
+An unrelated or empty Passed evidence receives one bounded vision repair
+attempt that explicitly asks the model to reinspect the scoped target and
+small/low-contrast badges. The guard remains strict after that retry.
+Every label-based assertion (`visible`, `hidden`, `selected`, `contains`, and
+`not_contains`) first grounds its target using accessibility text, resource ID,
+or OCR, then crops and adaptively magnifies that region with the built-in macOS
+`sips` tool before local OCR and vision inference. Tight pills and labels receive
+more zoom than full-width list items, with a 1600-pixel cap to keep Ollama
+prompts bounded. Assertions scoped to a `first ... item/card/row` use the first
+grounded list child or visible filter anchor instead of the whole screen.
+
+Visible action labels are never semantically reversed. For example, a case that
+requests `Ratings (low to high)` is blocked when the app exposes only
+`Ratings (High To Low)`; this is a test-spec mismatch, not a grounding synonym.
+The plan validator also binds every `assert_selected` to its nearest preceding
+selection `tap`, so the planner cannot tap one sort direction and verify the
+opposite direction.
+Visible-target assertions first use deterministic label, resource-id, and OCR
+grounding. When vision is still required, assertion requests send only the
+current screenshot. The previous observation is supplied as hierarchy/OCR only
+for comparison capabilities such as `wait_changed` and `assert_changed`, which
+keeps prompts smaller and remains compatible with local Ollama runners that
+reject multi-image requests.
+
+When a small local model cannot produce a valid long plan, a controlled
+natural-language compiler safely handles common imperative steps (`Tap`,
+`Verify visible/open`, `contains`, `does not contain`, `selected`, `closed`,
+`Wait until`, and `Scroll`). It activates only when every numbered step is
+recognized; otherwise the case remains blocked instead of being partially
+executed. The grammar is capability-based and contains no TestRail IDs or
+product-specific flow branches.
+
+The fallback is deliberately last, not primary. The AI receives the canonical
+capability registry as its intent dictionary and gets three bounded attempts to
+interpret synonyms/typos and repair invalid structured output. Every compiled
+plan reports `plan_source` (`ai` or `controlled_fallback`),
+`planner_attempts`, `normalization_applied`, and `planner_errors`. This keeps
+language understanding with AI while making fallback usage visible and
+auditable.
+
+Option selection is also normalized structurally rather than by product words.
+When there is no explicit `from X to Y` transition and the plan verifies an
+option with `assert_selected`, an accidental AI `set_control` is converted to
+`tap`. `set_control` remains reserved for genuine two-state transition tests.
+
+## AI responsibilities
+
+The local model is used only where semantics are needed:
+
+- Compile plain text into the strict plan schema.
+- Classify the current foreground as clear, optional, address, network error,
+  loading, or unknown.
+- Ground unfamiliar semantic targets from hierarchy, OCR, and screenshot.
+- Suggest an explicit safe recovery action when one exists.
+
+The AI does not directly invoke ADB, extend its own action vocabulary, bypass
+plan validation, approve destructive actions, or declare success without
+observed evidence.
+
+## Deterministic responsibilities
+
+- Reject unknown capabilities and malformed planner output.
+- Canonicalize harmless AI role drift when a capability has only one legal
+  role, while retaining strict validation for ambiguous steps.
+- Require unique ordered step IDs and valid capability fields.
+- Derive safe tap regions from current-screen OCR grounding.
+- Confirm the current screen before a tap, Back, or scroll.
+- Execute actions through ADB.
+- Limit waits, retries, interruption recovery, and repeated Back actions.
+- Compare OCR geometry/content before and after layout and scroll actions.
+- Reject a premature `PASSED` when required plan evidence is missing.
+
+## Recovery and safety rules
+
+- Up to three different optional interruptions may be recovered in one run.
+- The same ungrounded sheet cannot receive repeated Android Back actions.
+- After a sheet closes, an ungrounded model-only second interruption is ignored
+  unless new modal evidence exists.
+- Explicit dismiss actions include `Close`, `Cancel`, `Not now`, `Maybe later`,
+  `Skip`, and `No thanks`, including supported Arabic equivalents.
+- The known delivery-address flow selects `Work`; it never selects Edit, Add,
+  or Delete.
+- A transient network error gets at most one explicit `Retry`.
+- Payment, deletion/account changes, consent, permission, and security prompts
+  are never handled automatically.
+- Generic `OK`, `Continue`, and `Yes` actions are refused.
+- A historical successful screen does not authorize an action on the current
+  screen; every sensitive action must be grounded again.
+
+## Current boundary
+
+This remains a PoC, not an unrestricted autonomous mobile tester. The planner
+is generic, but the hardened device adapters currently have the strongest
+coverage for Home navigation, the Restaurants listing, two-option layout
+controls, optional sheets, and vertical-list scrolling. Extend the capability
+registry and its tests before relying on a new interaction type.
+
+## Key files
+
+```text
+case.txt                  Default plain-text test case
+cases/                    Additional plain-text cases
+src/capabilities.py       Reusable capability registry and field contracts
+src/planning.py           Local AI compiler, schema, validation, plan queries
+src/main.py               Orchestrator, grounding gates, ADB execution
+src/recovery.py           Bounded interruption assessment and recovery
+tools/screen_ocr.swift    Local Apple Vision OCR with bounding boxes
+tests/test_planning.py    Plan compiler/validation contract tests
+tests/test_known_gates.py Navigation, control, scrolling, and safety tests
+tests/test_recovery.py    Recovery behavior and refusal tests
+artifacts/run-*           Plan, screenshots, hierarchy, decisions, result
+```
+
+## Setup on macOS
+
+Requirements:
+
+- ADB available on `PATH`.
+- One unlocked and authorized Android device.
+- Staging app `com.hungerstation.android.web.debug` installed.
+- User already logged in.
+- Local Ollama running with `qwen2.5vl:3b` or another local vision model.
+- Swift toolchain available for the OCR helper.
+
+Compile OCR once:
+
+```bash
+swiftc -framework Vision -framework Foundation -framework ImageIO \
+  tools/screen_ocr.swift -o tools/screen_ocr
+chmod +x tools/screen_ocr
+```
+
+Check and run:
+
+```bash
+adb devices
+python3 -m src.main --check-only
+python3 -m src.main --case cases/33271747-row-to-card.txt
+```
+
+Normal execution uses up to three fresh app-session attempts by default. A
+first-attempt pass stops immediately; a later pass remains `PASSED` but records
+`flaky: true`, the failed attempts, and `attempts_used` in the root result. Use
+`--attempts 1` only when investigating a single execution.
+
+Release package override:
+
+```bash
+python3 -m src.main \
+  --app-id com.hungerstation.android.web \
+  --case cases/33271747-row-to-card.txt
+```
+
+## Artifacts
+
+Each `artifacts/run-*` directory contains the shared `plan.json`, aggregate
+`result.json`, and one `attempt-N/` directory per execution. Every attempt
+directory contains:
+
+- `plan.json`: validated plan compiled from the plain-text case.
+- `NN.png`: screenshot before a decision.
+- `NN.xml`: raw UIAutomator hierarchy when available.
+- `NN.json`: parsed application nodes.
+- `NN-dump-log.txt`: hierarchy-capture diagnostics.
+- `NN-assessment.json`: recovery or test-state assessment.
+- `NN-decision.json`: action, source, and evidence.
+- `NN-assertion-step-ID-crop.png`: magnified target region used for a
+  scoped visual assertion, such as the first restaurant item.
+- `NN-assertion-step-ID-crop.json`: crop bounds, expected value, model
+  attempts/retry state, validation errors, and the final assertion evidence.
+- `result.json`: that attempt's status, history, and recovery events.
+
+The root `result.json` records all attempt summaries, the final status, and
+whether a pass required retry. Each non-passing assertion is also re-observed
+up to three times before becoming terminal; this absorbs temporary loading and
+accessibility recomposition without converting a genuine repeated
+contradiction into a pass.
+
+## Local inference and privacy
+
+Inference stays on `http://127.0.0.1:11434`. Cloud model tags and redirects are
+rejected. Screenshots and hierarchy remain in the local artifact directory
+unless explicitly moved elsewhere.
+
+Assertion requests use the scoped screenshot crop plus a compact, target-aware
+subset of hierarchy and OCR evidence. This keeps large screens below the local
+model context limit without discarding labels, resource IDs, selected state,
+or content inside the asserted region.
+
+`contains` and `not_contains` assertions enforce evidence polarity for both
+PASS and FAIL. A positive assertion cannot pass with wording such as `Ad is not
+present`, and a negative assertion cannot fail using that same proof of
+absence. For a first restaurant item, the runner crops the first direct
+`vendorsRecycler` child and reruns local Apple Vision OCR on the adaptively
+magnified crop. An exact scoped OCR/accessibility match can pass without an
+Ollama call; OCR absence alone never proves a negative assertion. Scoped OCR is
+also supplied for other grounded label assertions and stored beside the crop as
+`*-crop-ocr.json` when available.
+When accessibility is transiently unavailable, combined OCR rows such as
+`Filters 1` ground both the labelled target and its adjacent counter, so the
+same scoped crop and deterministic value check still run.
+
+After a content-changing action such as **Apply**, accessibility may disappear
+briefly while the screen recomposes. Read-only assertions and list verification
+temporarily continue from screenshot + OCR, then use hierarchy again as soon as
+it returns. Labelled targets such as a Filters pill are cropped with a small
+adjacent region so their counters and badges can be verified locally. The
+fallback does not authorize an ungrounded coordinate tap.
+Semantic tap steps may also continue from screenshot + OCR when UIAutomator
+fails to create its XML file. Exactly one high-confidence matching label is
+required; zero or multiple matches are blocked without performing a tap.
+
+Immediately after opening Restaurants, the runner performs a fast screenshot
+and OCR probe for the known Hour Offer sheet. A unique `Expires in` label plus
+Restaurants-list evidence grounds its close control without waiting for
+UIAutomator or Ollama. If that evidence is absent, the normal full recovery
+path handles address sheets, Braze dialogs, and other interruptions.
+
+Recovery also enforces a screen contract. If a modal dismissal or Android Back
+returns to Home, the runner reopens Restaurants once before resuming the plan.
+Restaurants assertions are never sent to the AI while Home is grounded, which
+prevents a visually unrelated screen from passing through generated evidence.
+
+Generic AI classification never authorizes Android Back. Known sheets use
+deterministic gates; all other interruptions need a grounded dismiss control,
+modal container with a safe close target, or an explicit verified visual X.
+An ungrounded `optional` claim on a stable screen is ignored, while an
+unrecognized but concrete interruption blocks safely instead of navigating
+away from the tested screen.
+
+The dimmed-sheet guard runs before plan actions on every app screen, including
+Home. For hierarchy nodes that only look like a bottom sheet by geometry, the
+runner requires local visual dimming evidence before Android Back is allowed.
+Candidate discovery accepts labelled bottom containers exposed as
+`ViewGroup`, layout/Compose containers, or a plain `android.view.View`; the
+plain-View case is required by some Compose/Flutter semantics trees such as the
+order-rating sheet. Class and geometry alone never authorize Back.
+It decodes each screenshot once and samples a small number of pixels from the
+background, modal foreground, and their boundary. A darkened background,
+brighter foreground, and clear boundary contrast must agree. This check uses
+no OCR or model call, and its measurements are recorded as `dimming_evidence`
+in the decision artifact. Explicit `dialog`, `modal`, `popup`, or
+`bottom_sheet` resource/class markers remain sufficient by themselves.
+
+Plan-owned product sheets are protected from generic recovery. While the
+current plan explicitly asserts a sheet visible/hidden, or after that sheet
+was verified visible and before it is verified hidden, the generic dimmed-sheet
+guard cannot dismiss it. For example, a random Rating Order sheet on Home is
+recovered, but the explicitly planned Filters sheet remains available for its
+Ratings and Apply steps. Recovery does not advance the current test step, so
+the intended action is retried only after the interruption closes.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The Python runner uses only the standard library. Tests cover plan validation,
+capability extraction, navigation, multiple interruptions, false-positive
+recovery, idempotent control setup, layout verification, current-screen safety,
+and screenshot-based scrolling.
