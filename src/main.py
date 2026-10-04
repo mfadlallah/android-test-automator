@@ -165,14 +165,34 @@ class Device:
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
-    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4):
+    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None):
         """Wait for UI layout to stabilize instead of fixed sleep.
 
         Observes screen twice with interval and checks if nodes/OCR are stable.
-        Returns once stability detected or max_wait exceeded.
+        If target_bounds provided, focuses stability check on that region (ignores
+        animations elsewhere on screen). Returns once stability detected or max_wait
+        exceeded.
+
+        Args:
+            target_bounds: Optional [x1, y1, x2, y2] to focus stability on region
+                          (useful when animations exist outside target area)
         """
         stable_checks = 0
-        required_checks = 2
+        required_checks = 1  # Reduced from 2 for faster convergence with animations
+
+        def filter_to_region(items, bounds):
+            """Filter OCR/nodes to only those in target region."""
+            if not bounds:
+                return items
+            x1, y1, x2, y2 = bounds
+            filtered = []
+            for item in items:
+                item_bounds = item.get('bounds', [0, 0, 0, 0])
+                # Check if item overlaps with target region
+                if (item_bounds[2] > x1 and item_bounds[0] < x2 and
+                    item_bounds[3] > y1 and item_bounds[1] < y2):
+                    filtered.append(item)
+            return filtered
 
         for attempt in range(1, int(max_wait / interval) + 1):
             try:
@@ -180,18 +200,23 @@ class Device:
                 time.sleep(interval)
                 obs2 = self.observe(folder, index + 200 + attempt)
 
-                # Compare node counts and structure
+                # Filter to target region if specified
+                nodes1 = filter_to_region(obs1.get('nodes', []), target_bounds)
+                nodes2 = filter_to_region(obs2.get('nodes', []), target_bounds)
+                ocr1 = filter_to_region(obs1.get('ocr', []), target_bounds)
+                ocr2 = filter_to_region(obs2.get('ocr', []), target_bounds)
+
+                # Compare node counts and structure (in target region)
                 nodes_stable = (
-                    len(obs1.get('nodes', [])) == len(obs2.get('nodes', [])) and
-                    self._nodes_structurally_similar(
-                        obs1.get('nodes', []), obs2.get('nodes', []))
+                    len(nodes1) == len(nodes2) and
+                    self._nodes_structurally_similar(nodes1, nodes2)
                 )
 
-                # Compare OCR text at similar positions
+                # Compare OCR text at similar positions (in target region)
                 ocr1_texts = {tuple(r.get('bounds', [0,0,0,0])[:2]): r.get('text', '')
-                              for r in obs1.get('ocr', [])}
+                              for r in ocr1}
                 ocr2_texts = {tuple(r.get('bounds', [0,0,0,0])[:2]): r.get('text', '')
-                              for r in obs2.get('ocr', [])}
+                              for r in ocr2}
                 ocr_stable = ocr1_texts == ocr2_texts
 
                 if nodes_stable and ocr_stable:
@@ -314,9 +339,13 @@ class Device:
             start,end=(hi,lo) if decision['direction']=='down' else (lo,hi)
             self.adb('shell','input','swipe',str(x),str(start),str(x),str(end),'600')
 
-        # Use adaptive stability waiting instead of fixed sleep for all actions
+        # Use adaptive stability waiting with region focus (ignores animations elsewhere)
         if self.artifact_folder:
-            self.wait_for_stability(self.artifact_folder, self.observation_index)
+            # Expand bounds slightly to capture adjacent content affected by action
+            margin = 100
+            target_bounds = [max(0, x1-margin), max(0, y1-margin), x2+margin, y2+margin]
+            self.wait_for_stability(self.artifact_folder, self.observation_index,
+                                   target_bounds=target_bounds)
         else:
             time.sleep(1)  # fallback
 
