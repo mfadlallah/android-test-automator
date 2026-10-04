@@ -471,30 +471,48 @@ def assertion_evidence_error(step,result):
     return None
 
 
-def effective_ocr_confidence_threshold(roi_bounds, base_threshold=0.70):
-    """Adaptive OCR confidence threshold based on region size.
+def smart_label_padding(label_bounds, container_bounds, screenshot_size):
+    """Compute intelligent padding around a label based on container proximity.
 
-    Small regions (badges, pills) are harder to OCR accurately and benefit
-    from lower confidence thresholds. Large regions can afford stricter thresholds.
+    Avoids excessive padding near container edges while ensuring enough context
+    for accurate OCR/vision model inference.
     """
-    if not roi_bounds or len(roi_bounds) != 4:
-        return base_threshold
+    if not label_bounds or not container_bounds or not screenshot_size:
+        # Fallback to conservative defaults
+        return [max(0, label_bounds[0] - 8),
+                max(0, label_bounds[1] - 6),
+                min(screenshot_size[0], label_bounds[2] + 8),
+                min(screenshot_size[1], label_bounds[3] + 6)]
 
-    x1, y1, x2, y2 = roi_bounds
-    roi_area = (x2 - x1) * (y2 - y1)
+    lx1, ly1, lx2, ly2 = label_bounds
+    cx1, cy1, cx2, cy2 = container_bounds
+    width, height = screenshot_size
 
-    # Tiny badges (< 5000 pixels): allow 55% confidence
-    if roi_area < 5000:
-        return max(0.55, base_threshold - 0.15)
-    # Small pills/labels (5k-20k pixels): allow 60% confidence
-    elif roi_area < 20000:
-        return max(0.60, base_threshold - 0.10)
-    # Medium regions: use base threshold
-    elif roi_area < 100000:
-        return base_threshold
-    # Large regions (full-width): stricter 75% threshold
-    else:
-        return min(0.75, base_threshold + 0.05)
+    label_w = lx2 - lx1
+    label_h = ly2 - ly1
+
+    # Distance from label edges to container boundaries
+    left_margin = lx1 - cx1
+    top_margin = ly1 - cy1
+    right_margin = cx2 - lx2
+    bottom_margin = cy2 - ly2
+
+    # Base padding for small labels (ensure context is visible)
+    base_pad_h = max(6, round(label_w * 0.10))
+    base_pad_v = max(5, round(label_h * 0.15))
+
+    # Adjust based on available space in container
+    pad_left = min(base_pad_h, left_margin // 2) if left_margin > 0 else 2
+    pad_top = min(base_pad_v, top_margin // 2) if top_margin > 0 else 2
+    pad_right = min(base_pad_h + 3, right_margin // 2) if right_margin > 0 else 2
+    pad_bottom = min(base_pad_v, bottom_margin // 2) if bottom_margin > 0 else 2
+
+    return [
+        max(0, lx1 - pad_left),
+        max(0, ly1 - pad_top),
+        min(width, lx2 + pad_right),
+        min(height, ly2 + pad_bottom)
+    ]
 
 
 def semantic_target_bounds(obs,target):
@@ -653,13 +671,12 @@ def assertion_crop_bounds(obs,step):
                             label_bounds=[node_x1,node_y1,node_x2,node_y2]
                             break
 
-                # If found, create tight crop around the label with padding
+                # If found, create tight crop with smart padding based on container proximity
                 if label_bounds:
-                    lx1,ly1,lx2,ly2=label_bounds
-                    padding_h=max(8,round((lx2-lx1)*0.15))  # 15% horizontal padding
-                    padding_v=max(6,round((ly2-ly1)*0.20))  # 20% vertical padding
-                    return [max(0,lx1-padding_h),max(0,ly1-padding_v),
-                            min(width,lx2+padding_h),min(height,ly2+padding_v)]
+                    return smart_label_padding(
+                        label_bounds,
+                        [fx1, fy1, fx2, fy2],  # first item container bounds
+                        [width, height])
 
             return [max(0,fx1,x1),max(0,fy1,y1),
                     min(width,fx2,x2),min(height,fy2,y2)]
