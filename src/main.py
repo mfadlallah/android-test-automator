@@ -269,11 +269,9 @@ class Device:
             ):
                 raise Blocked('Invalid screenshot-grounded tap')
             self.adb('shell', 'input', 'tap', str(x), str(y))
-            # Wait for UI to stabilize after vision-point tap
-            if self.artifact_folder:
-                self.wait_for_stability(self.artifact_folder, self.observation_index)
-            else:
-                time.sleep(0.5)  # fallback if folder not set
+            # Vision-point taps are usually UI operations (closing sheets)
+            # not data-loading, so skip adaptive waiting to avoid animations
+            time.sleep(0.5)
             return
 
         action=decision['action']
