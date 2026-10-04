@@ -738,21 +738,26 @@ def assertion_crop_bounds(obs,step):
                         [fx1, fy1, fx2, fy2],  # first item container bounds
                         [width, height])
 
-                # Fallback: If label not found in OCR/accessibility, crop a tighter region
-                # around likely badge position (typically top-right corner of item)
-                # instead of the entire first item to keep badges visible and prominent.
+                # Fallback: If label not found in OCR/accessibility, crop a tight region
+                # around likely badge position (top-right corner of first item ONLY).
+                # Ensures we don't include a second restaurant item in the crop.
                 item_w = fx2 - fx1
                 item_h = fy2 - fy1
 
-                # Small crop around top-right area where badges typically appear
-                badge_crop_width = min(round(item_w * 0.35), 250)  # ~35% width or max 250px
-                badge_crop_height = min(round(item_h * 0.25), 120)  # ~25% height or max 120px
+                # Ultra-tight crop for badge area only (not entire first item)
+                # Width: ~30% of item or max 220px for right-side badge
+                badge_crop_width = min(round(item_w * 0.30), 220)
+                # Height: fixed 70px to stay within first item, avoid second item
+                badge_crop_height = 70
 
-                # Position: right side, near top
+                # Position: right side, near top (where badges appear)
                 badge_x1 = max(0, fx2 - badge_crop_width)
-                badge_y1 = max(0, fy1)
-                badge_x2 = min(width, fx2)
+                badge_y1 = max(0, fy1 + 5)  # small offset from top
+                badge_x2 = min(width, fx2 - 5)  # small margin from edge
                 badge_y2 = min(height, fy1 + badge_crop_height)
+
+                # Safety: ensure crop doesn't exceed first item bounds
+                badge_y2 = min(badge_y2, fy2)
 
                 return [badge_x1, badge_y1, badge_x2, badge_y2]
 
