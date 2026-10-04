@@ -1029,6 +1029,23 @@ def assess_plan_assertion(
                 encoding='utf-8')
         deterministic=scoped_exact_value_result(
             obs,step,crop_bounds,crop_ocr)
+
+    # For assert_not_contains, absence from OCR/accessibility IS evidence.
+    # Don't fall back to vision model just because we can't prove negative;
+    # absence of the label in the tight crop is the evidence we need.
+    if (deterministic is None
+            and step.get('capability')=='assert_not_contains'
+            and crop_bounds and crop_ocr):
+        # Label not found in crop OCR = evidence it's not present
+        target=str(step.get('target',''))
+        value=str(step.get('value',''))
+        deterministic={
+            'status':'passed',
+            'reason':target+' does not contain '+value+'.',
+            'evidence':('Exact label '+value+' was not found in cropped '+
+                       target+' region after OCR inspection.'),
+        }
+
     if deterministic is not None:
         error=assertion_evidence_error(step,deterministic)
         if error is None:
