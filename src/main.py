@@ -162,6 +162,63 @@ class Device:
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
+    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4):
+        """Wait for UI layout to stabilize instead of fixed sleep.
+
+        Observes screen twice with interval and checks if nodes/OCR are stable.
+        Returns once stability detected or max_wait exceeded.
+        """
+        stable_checks = 0
+        required_checks = 2
+
+        for attempt in range(1, int(max_wait / interval) + 1):
+            try:
+                obs1 = self.observe(folder, index + 100 + attempt)
+                time.sleep(interval)
+                obs2 = self.observe(folder, index + 200 + attempt)
+
+                # Compare node counts and structure
+                nodes_stable = (
+                    len(obs1.get('nodes', [])) == len(obs2.get('nodes', [])) and
+                    self._nodes_structurally_similar(
+                        obs1.get('nodes', []), obs2.get('nodes', []))
+                )
+
+                # Compare OCR text at similar positions
+                ocr1_texts = {tuple(r.get('bounds', [0,0,0,0])[:2]): r.get('text', '')
+                              for r in obs1.get('ocr', [])}
+                ocr2_texts = {tuple(r.get('bounds', [0,0,0,0])[:2]): r.get('text', '')
+                              for r in obs2.get('ocr', [])}
+                ocr_stable = ocr1_texts == ocr2_texts
+
+                if nodes_stable and ocr_stable:
+                    stable_checks += 1
+                    if stable_checks >= required_checks:
+                        return obs2
+                else:
+                    stable_checks = 0
+
+            except (Blocked, Exception):
+                pass
+
+            time.sleep(interval)
+
+        return self.observe(folder, index)
+
+    def _nodes_structurally_similar(self, nodes1, nodes2, similarity_threshold=0.85):
+        """Check if node hierarchy is structurally similar."""
+        if len(nodes1) != len(nodes2):
+            return False
+
+        def node_sig(n):
+            return (n.get('text', '')[:20], n.get('resource_id', '')[:30])
+
+        sigs1 = [node_sig(n) for n in nodes1]
+        sigs2 = [node_sig(n) for n in nodes2]
+
+        matches = sum(1 for s1, s2 in zip(sigs1, sigs2) if s1 == s2)
+        return matches / len(sigs1) >= similarity_threshold if sigs1 else False
+
     def execute(self, decision, observation):
 
         if 'vision_point' in decision:
@@ -178,7 +235,8 @@ class Device:
             ):
                 raise Blocked('Invalid screenshot-grounded tap')
             self.adb('shell', 'input', 'tap', str(x), str(y))
-            time.sleep(1)
+            # Wait for UI to settle after tap instead of fixed delay
+            time.sleep(0.5)  # brief initial wait for input processing
             return
 
         action=decision['action']
@@ -188,7 +246,7 @@ class Device:
             # Bottom-sheet dismissal can leave accessibility in a transient
             # empty state while the listing recomposes. Screenshot recovery
             # does not need to wait for the hierarchy to return.
-            time.sleep(1.5)
+            time.sleep(0.8)  # brief wait for Back to process
             return
         if action=='screen_scroll':
             import struct
@@ -196,7 +254,7 @@ class Device:
             x=width//2
             self.adb('shell','input','swipe',str(x),str(round(height*.88)),
                      str(x),str(round(height*.28)),'700')
-            time.sleep(2)
+            time.sleep(1)  # brief wait for scroll momentum to settle
             return
         if action not in ('tap','scroll'): raise Blocked('Unsupported action')
         # RESTAURANTS_SCREEN_SCROLL_GUARD
@@ -560,9 +618,15 @@ def assertion_crop_bounds(obs,step):
                     and ny2>y1 and ny1<y2):
                 direct.append(node)
         if direct:
-            first=min(direct,key=lambda node:
-                      (max(node['bounds'][1],y1),node['bounds'][0]))
-            fx1,fy1,fx2,fy2=first['bounds']
+            # Prefer fully visible items to avoid OCR issues with clipped content
+            first = get_fully_visible_first_item(direct, [x1, y1, x2, y2])
+
+            # Fallback to topmost item if no fully visible item exists
+            if first is None:
+                first = min(direct, key=lambda node:
+                          (max(node['bounds'][1], y1), node['bounds'][0]))
+
+            fx1, fy1, fx2, fy2 = first['bounds']
 
             # For contains/not_contains assertions, try to find and tightly crop
             # the specific label within the first item instead of the entire item.
