@@ -471,6 +471,66 @@ def assertion_evidence_error(step,result):
     return None
 
 
+def get_fully_visible_first_item(nodes, container_bounds, min_visibility=0.85):
+    """Find first list item that is sufficiently visible (not clipped).
+
+    Filters for items with min_visibility percentage visible within container,
+    to avoid partially-clipped items where OCR might not capture full content.
+    """
+    cx1, cy1, cx2, cy2 = container_bounds
+    candidates = []
+
+    for node in nodes:
+        x1, y1, x2, y2 = node.get('bounds', [0, 0, 0, 0])
+
+        # Skip if node doesn't overlap with container
+        if x2 <= cx1 or x1 >= cx2 or y2 <= cy1 or y1 >= cy2:
+            continue
+
+        # Calculate visibility percentage (what portion is within container)
+        visible_x1 = max(x1, cx1)
+        visible_y1 = max(y1, cy1)
+        visible_x2 = min(x2, cx2)
+        visible_y2 = min(y2, cy2)
+
+        visible_height = max(0, visible_y2 - visible_y1)
+        total_height = max(1, y2 - y1)
+        visibility = visible_height / total_height
+
+        if visibility >= min_visibility:
+            candidates.append((node, y1))
+
+    if candidates:
+        return min(candidates, key=lambda x: x[1])[0]
+    return None
+
+
+def effective_ocr_confidence_threshold(roi_bounds, base_threshold=0.70):
+    """Adaptive OCR confidence threshold based on region size.
+
+    Small regions (badges, pills) are harder to OCR accurately and benefit
+    from lower confidence thresholds. Large regions can afford stricter thresholds.
+    """
+    if not roi_bounds or len(roi_bounds) != 4:
+        return base_threshold
+
+    x1, y1, x2, y2 = roi_bounds
+    roi_area = (x2 - x1) * (y2 - y1)
+
+    # Tiny badges (< 5000 pixels): allow 55% confidence
+    if roi_area < 5000:
+        return max(0.55, base_threshold - 0.15)
+    # Small pills/labels (5k-20k pixels): allow 60% confidence
+    elif roi_area < 20000:
+        return max(0.60, base_threshold - 0.10)
+    # Medium regions: use base threshold
+    elif roi_area < 100000:
+        return base_threshold
+    # Large regions (full-width): stricter 75% threshold
+    else:
+        return min(0.75, base_threshold + 0.05)
+
+
 def smart_label_padding(label_bounds, container_bounds, screenshot_size):
     """Compute intelligent padding around a label based on container proximity.
 
