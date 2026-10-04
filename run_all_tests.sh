@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e  # Exit on first failure
+# Don't exit on first failure - we want to run all tests and report results
 
 echo "🔧 Pre-flight checks..."
 echo ""
@@ -38,12 +38,20 @@ for case in cases/*.txt; do
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "Test $total: $(basename $case)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⏱️  Starting test (timeout: 15 minutes)..."
+  echo ""
 
-  if python3 -m src.main --case "$case"; then
+  if timeout 900 python3 -m src.main --case "$case"; then
     ((passed++))
+    echo ""
     echo "✅ PASSED: $(basename $case)"
   else
-    echo "❌ FAILED: $(basename $case)"
+    exit_code=$?
+    if [ $exit_code -eq 124 ]; then
+      echo "❌ TIMEOUT: $(basename $case) exceeded 15 minutes"
+    else
+      echo "❌ FAILED: $(basename $case) (exit code: $exit_code)"
+    fi
     failed_cases+=("$(basename $case)")
   fi
 done
