@@ -413,6 +413,40 @@ def assertion_evidence_error(step,result):
     return None
 
 
+def get_fully_visible_first_item(nodes, container_bounds, min_visibility=0.85):
+    """Find first list item that is sufficiently visible (not clipped).
+
+    Filters for items with min_visibility percentage visible within container,
+    to avoid partially-clipped items where OCR might not capture full content.
+    """
+    cx1, cy1, cx2, cy2 = container_bounds
+    candidates = []
+
+    for node in nodes:
+        x1, y1, x2, y2 = node.get('bounds', [0, 0, 0, 0])
+
+        # Skip if node doesn't overlap with container
+        if x2 <= cx1 or x1 >= cx2 or y2 <= cy1 or y1 >= cy2:
+            continue
+
+        # Calculate visibility percentage (what portion is within container)
+        visible_x1 = max(x1, cx1)
+        visible_y1 = max(y1, cy1)
+        visible_x2 = min(x2, cx2)
+        visible_y2 = min(y2, cy2)
+
+        visible_height = max(0, visible_y2 - visible_y1)
+        total_height = max(1, y2 - y1)
+        visibility = visible_height / total_height
+
+        if visibility >= min_visibility:
+            candidates.append((node, y1))
+
+    if candidates:
+        return min(candidates, key=lambda x: x[1])[0]
+    return None
+
+
 def semantic_target_bounds(obs,target):
     """Ground a compact region around a labelled target or resource-id."""
     import struct
@@ -516,9 +550,15 @@ def assertion_crop_bounds(obs,step):
                     and ny2>y1 and ny1<y2):
                 direct.append(node)
         if direct:
-            first=min(direct,key=lambda node:
-                      (max(node['bounds'][1],y1),node['bounds'][0]))
-            fx1,fy1,fx2,fy2=first['bounds']
+            # Prefer fully visible items to avoid OCR issues with clipped content
+            first = get_fully_visible_first_item(direct, [x1, y1, x2, y2])
+
+            # Fallback to topmost item if no fully visible item exists
+            if first is None:
+                first = min(direct, key=lambda node:
+                          (max(node['bounds'][1], y1), node['bounds'][0]))
+
+            fx1, fy1, fx2, fy2 = first['bounds']
 
             # For contains/not_contains assertions, try to find and tightly crop
             # the specific label within the first item instead of the entire item.
