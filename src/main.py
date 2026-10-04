@@ -343,13 +343,10 @@ class Device:
             start,end=(hi,lo) if decision['direction']=='down' else (lo,hi)
             self.adb('shell','input','swipe',str(x),str(start),str(x),str(end),'600')
 
-        # Use adaptive stability waiting with region focus (ignores animations elsewhere)
+        # Use adaptive stability waiting - full screen for taps (affects distant UI)
+        # Reason: Button taps affect content elsewhere (e.g., Apply→list loads), not the button itself
         if self.artifact_folder:
-            # Expand bounds slightly to capture adjacent content affected by action
-            margin = 100
-            target_bounds = [max(0, x1-margin), max(0, y1-margin), x2+margin, y2+margin]
-            self.wait_for_stability(self.artifact_folder, self.observation_index,
-                                   target_bounds=target_bounds)
+            self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=10)
         else:
             time.sleep(1)  # fallback
 
