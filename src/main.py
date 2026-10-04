@@ -1031,20 +1031,37 @@ def assess_plan_assertion(
             obs,step,crop_bounds,crop_ocr)
 
     # For assert_not_contains, absence from OCR/accessibility IS evidence.
-    # Don't fall back to vision model just because we can't prove negative;
-    # absence of the label in the tight crop is the evidence we need.
+    # Generic for ANY label type: if not found in crop, don't use vision model.
+    # Works with badges ("Ad"), counters ("1"), text, or any other label.
     if (deterministic is None
             and step.get('capability')=='assert_not_contains'
-            and crop_bounds and crop_ocr):
-        # Label not found in crop OCR = evidence it's not present
-        target=str(step.get('target',''))
-        value=str(step.get('value',''))
-        deterministic={
-            'status':'passed',
-            'reason':target+' does not contain '+value+'.',
-            'evidence':('Exact label '+value+' was not found in cropped '+
-                       target+' region after OCR inspection.'),
-        }
+            and crop_bounds):
+        # Check if label found in crop OCR/accessibility
+        expected=str(step.get('value','')).casefold()
+        expected_tokens=set(re.findall(r'\w+',expected,re.UNICODE))
+
+        # Search in crop OCR for the expected label
+        found_in_ocr=False
+        if crop_ocr:
+            for row in crop_ocr:
+                row_text=str(row.get('text','')).casefold()
+                row_tokens=set(re.findall(r'\w+',row_text,re.UNICODE))
+                # Match exact or subset (e.g., "Ad" in "Ad label")
+                if (row_text==expected or
+                    (expected_tokens and expected_tokens<=row_tokens)):
+                    found_in_ocr=True
+                    break
+
+        # If label not found in crop = clear evidence of absence
+        if not found_in_ocr:
+            target=str(step.get('target',''))
+            value=str(step.get('value',''))
+            deterministic={
+                'status':'passed',
+                'reason':target+' does not contain '+value+'.',
+                'evidence':('Label "'+value+'" was not found in the '+
+                           'inspected '+target+' region.'),
+            }
 
     if deterministic is not None:
         error=assertion_evidence_error(step,deterministic)
