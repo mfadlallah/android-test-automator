@@ -67,6 +67,8 @@ class Device:
     def __init__(self, serial, package):
         self.serial, self.package = serial, package
         self.remote = '/data/local/tmp/agent-' + uuid.uuid4().hex + '.xml'
+        self.observation_index = 0  # Track observation counter
+        self.artifact_folder = None  # Set by orchestrator for stability waiting
     def adb(self, *args, binary=False):
         p = subprocess.run(['adb','-s',self.serial,*args], capture_output=True, timeout=35)
         if p.returncode: raise Blocked('ADB failed: '+p.stderr.decode(errors='replace')[-600:])
@@ -159,6 +161,7 @@ class Device:
             json.dumps(nodes, ensure_ascii=False, indent=2),
             encoding='utf-8'
         )
+        self.observation_index = index  # Track current observation
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
@@ -235,18 +238,23 @@ class Device:
             ):
                 raise Blocked('Invalid screenshot-grounded tap')
             self.adb('shell', 'input', 'tap', str(x), str(y))
-            # Wait for UI to settle after tap instead of fixed delay
-            time.sleep(0.5)  # brief initial wait for input processing
+            # Wait for UI to stabilize after vision-point tap
+            if self.artifact_folder:
+                self.wait_for_stability(self.artifact_folder, self.observation_index)
+            else:
+                time.sleep(0.5)  # fallback if folder not set
             return
 
         action=decision['action']
         if action=='wait': time.sleep(2); return
         if action=='back':
             self.adb('shell','input','keyevent','4')
-            # Bottom-sheet dismissal can leave accessibility in a transient
-            # empty state while the listing recomposes. Screenshot recovery
-            # does not need to wait for the hierarchy to return.
-            time.sleep(0.8)  # brief wait for Back to process
+            # Wait for Back action to stabilize (dimmed sheet can leave
+            # accessibility temporarily unavailable; adaptive wait handles it)
+            if self.artifact_folder:
+                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3)
+            else:
+                time.sleep(0.8)  # fallback
             return
         if action=='screen_scroll':
             import struct
@@ -254,7 +262,11 @@ class Device:
             x=width//2
             self.adb('shell','input','swipe',str(x),str(round(height*.88)),
                      str(x),str(round(height*.28)),'700')
-            time.sleep(1)  # brief wait for scroll momentum to settle
+            # Wait for scroll momentum to settle with adaptive detection
+            if self.artifact_folder:
+                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3)
+            else:
+                time.sleep(1)  # fallback
             return
         if action not in ('tap','scroll'): raise Blocked('Unsupported action')
         # RESTAURANTS_SCREEN_SCROLL_GUARD
@@ -301,7 +313,12 @@ class Device:
             lo=y1+int((y2-y1)*.28); hi=y1+int((y2-y1)*.88)
             start,end=(hi,lo) if decision['direction']=='down' else (lo,hi)
             self.adb('shell','input','swipe',str(x),str(start),str(x),str(end),'600')
-        time.sleep(1)
+
+        # Use adaptive stability waiting instead of fixed sleep for all actions
+        if self.artifact_folder:
+            self.wait_for_stability(self.artifact_folder, self.observation_index)
+        else:
+            time.sleep(1)  # fallback
 
 SCHEMA={'type':'object','additionalProperties':False,'properties':{
  'action':{'type':'string','enum':['tap','scroll','back','wait','passed','failed','blocked']},
@@ -3026,6 +3043,7 @@ def main():
             for attempt in range(1,args.attempts+1):
                 attempt_folder=folder/f'attempt-{attempt}'
                 attempt_folder.mkdir()
+                device.artifact_folder=attempt_folder  # Enable adaptive waiting
                 print('\n=== Test attempt '+str(attempt)+'/'+
                       str(args.attempts)+' ===',flush=True)
                 attempt_status='BLOCKED'; attempt_reason=''
