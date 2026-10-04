@@ -179,6 +179,8 @@ class Device:
         """
         stable_checks = 0
         required_checks = 1  # Reduced from 2 for faster convergence with animations
+        import time as time_module
+        start_time = time_module.time()
 
         def filter_to_region(items, bounds):
             """Filter OCR/nodes to only those in target region."""
@@ -222,15 +224,19 @@ class Device:
                 if nodes_stable and ocr_stable:
                     stable_checks += 1
                     if stable_checks >= required_checks:
+                        elapsed = time_module.time() - start_time
+                        print(f"✅ Stability achieved in {elapsed:.1f}s (nodes: {len(nodes2)}, ocr: {len(ocr2)})")
                         return obs2
                 else:
                     stable_checks = 0
 
-            except (Blocked, Exception):
+            except (Blocked, Exception) as e:
                 pass
 
             time.sleep(interval)
 
+        elapsed = time_module.time() - start_time
+        print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.")
         return self.observe(folder, index)
 
     def _nodes_structurally_similar(self, nodes1, nodes2, similarity_threshold=0.85):
