@@ -413,6 +413,32 @@ def assertion_evidence_error(step,result):
     return None
 
 
+def effective_ocr_confidence_threshold(roi_bounds, base_threshold=0.70):
+    """Adaptive OCR confidence threshold based on region size.
+
+    Small regions (badges, pills) are harder to OCR accurately and benefit
+    from lower confidence thresholds. Large regions can afford stricter thresholds.
+    """
+    if not roi_bounds or len(roi_bounds) != 4:
+        return base_threshold
+
+    x1, y1, x2, y2 = roi_bounds
+    roi_area = (x2 - x1) * (y2 - y1)
+
+    # Tiny badges (< 5000 pixels): allow 55% confidence
+    if roi_area < 5000:
+        return max(0.55, base_threshold - 0.15)
+    # Small pills/labels (5k-20k pixels): allow 60% confidence
+    elif roi_area < 20000:
+        return max(0.60, base_threshold - 0.10)
+    # Medium regions: use base threshold
+    elif roi_area < 100000:
+        return base_threshold
+    # Large regions (full-width): stricter 75% threshold
+    else:
+        return min(0.75, base_threshold + 0.05)
+
+
 def semantic_target_bounds(obs,target):
     """Ground a compact region around a labelled target or resource-id."""
     import struct
@@ -448,8 +474,14 @@ def semantic_target_bounds(obs,target):
     if not matches:
         wanted_token_sets=[set(re.findall(r'\w+',normalize(value),re.UNICODE))
                            for value in variants if value]
+
+        # Compute adaptive confidence threshold based on expected region size.
+        # For generic label targets without bounds, assume medium region.
+        confidence_threshold = effective_ocr_confidence_threshold(
+            [0, 0, width // 3, height // 4])
+
         for row in obs.get('ocr',[]):
-            if row.get('confidence',0)<.7:
+            if row.get('confidence', 0) < confidence_threshold:
                 continue
             normalized=normalize(row.get('text'))
             row_tokens=set(re.findall(r'\w+',normalized,re.UNICODE))
@@ -529,12 +561,18 @@ def assertion_crop_bounds(obs,step):
 
                 # Search OCR rows that overlap the first item for the expected label
                 label_bounds=None
+                # Use adaptive confidence for small badges like "Ad"
+                confidence_threshold = effective_ocr_confidence_threshold(
+                    [fx1, fy1, fx2, fy2])
+
                 for row in obs.get('ocr',[]):
                     ocr_x1,ocr_y1,ocr_x2,ocr_y2=row.get('bounds',[0,0,0,0])
                     ocr_text=' '.join(row.get('text','').split()).casefold()
-                    # Check if OCR is within first item bounds
+                    ocr_confidence=row.get('confidence',0.0)
+                    # Check if OCR is within first item bounds and meets confidence threshold
                     if (ocr_x2>fx1 and ocr_x1<fx2 and ocr_y2>fy1 and ocr_y1<fy2
-                            and ocr_text==expected_label):
+                            and ocr_text==expected_label
+                            and ocr_confidence>=confidence_threshold):
                         label_bounds=[ocr_x1,ocr_y1,ocr_x2,ocr_y2]
                         break
 
