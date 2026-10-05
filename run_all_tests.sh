@@ -35,13 +35,17 @@ echo "✅ Run folder: $RUN_FOLDER"
 echo ""
 
 echo "🚀 Running all test cases..."
+SUITE_START=$(date +%s)
 total=0
 passed=0
 failed_cases=()
+declare -A case_timings
 
 for case in cases/*.txt; do
   ((total++))
   case_name=$(basename "$case" .txt)
+  CASE_START=$(date +%s)
+
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "Test $total: $case_name"
@@ -55,22 +59,46 @@ for case in cases/*.txt; do
   if timeout 1800 env TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
        python3 -m src.main --case "$case"; then
     ((passed++))
+    CASE_END=$(date +%s)
+    CASE_DURATION=$((CASE_END - CASE_START))
+    case_timings["$case_name"]=$CASE_DURATION
     echo ""
-    echo "✅ PASSED: $case_name"
+    echo "✅ PASSED: $case_name (${CASE_DURATION}s)"
   else
     exit_code=$?
+    CASE_END=$(date +%s)
+    CASE_DURATION=$((CASE_END - CASE_START))
+    case_timings["$case_name"]=$CASE_DURATION
     if [ $exit_code -eq 124 ]; then
-      echo "❌ TIMEOUT: $case_name exceeded 30 minutes"
+      echo "❌ TIMEOUT: $case_name exceeded 30 minutes (${CASE_DURATION}s)"
     else
-      echo "❌ FAILED: $case_name (exit code: $exit_code)"
+      echo "❌ FAILED: $case_name (exit code: $exit_code, ${CASE_DURATION}s)"
     fi
     failed_cases+=("$case_name")
   fi
 done
 
+SUITE_END=$(date +%s)
+SUITE_DURATION=$((SUITE_END - SUITE_START))
+SUITE_MINUTES=$((SUITE_DURATION / 60))
+SUITE_SECONDS=$((SUITE_DURATION % 60))
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📊 Results: $passed/$total tests passed"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "⏱️ Timing per test case:"
+for case_name in "${!case_timings[@]}"; do
+  duration=${case_timings[$case_name]}
+  minutes=$((duration / 60))
+  seconds=$((duration % 60))
+  printf "  %-45s %2dm %02ds\n" "$case_name:" "$minutes" "$seconds"
+done | sort
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🕐 Total suite time: ${SUITE_MINUTES}m ${SUITE_SECONDS}s"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 if [ ${#failed_cases[@]} -gt 0 ]; then
