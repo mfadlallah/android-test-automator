@@ -347,10 +347,17 @@ class Device:
             self.adb('shell','input','swipe',str(x),str(start),str(x),str(end),'600')
 
         # Use adaptive stability waiting - full screen for taps (affects distant UI)
-        # Reason: Button taps affect content elsewhere (e.g., Apply→list loads), not the button itself
-        # Reduced timeout: observe() calls to Ollama can be slow; limit waiting to 5s max
-        # If backend is responsive, UI stabilizes quickly; if not, fallback to fixed sleep
-        if self.artifact_folder:
+        # Exception: Skip for certain buttons (Apply, Clear) that don't need stability checks
+        is_apply_button = node.get('resource_id', '').endswith('apply_button') or \
+                         'apply' in node.get('text', '').lower()
+        is_clear_button = node.get('resource_id', '').endswith('clear_button') or \
+                         'clear' in node.get('text', '').lower()
+
+        if is_apply_button or is_clear_button:
+            # Apply/Clear buttons don't need stability waiting - backend responds immediately
+            time.sleep(1)
+        elif self.artifact_folder:
+            # Reduced timeout: observe() calls to Ollama can be slow; limit waiting to 5s max
             self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=5, interval=0.3)
         else:
             time.sleep(1)  # fallback
