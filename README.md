@@ -263,13 +263,62 @@ ADB action.
 | `33271749` | `cases/33271749-sort-restaurants-list.txt` | Ad visible before filtering | Rating low-to-high; first item has no Ad |
 
 They are independent because each plan establishes its initial control state
-idempotently before executing the tested transition:
+idempotently before executing the tested transition.
+
+### Running individual test cases
+
+Execute a single test case:
 
 ```bash
 python3 -m src.main --case cases/33271746-card-to-row.txt
 python3 -m src.main --case cases/33271747-row-to-card.txt
 python3 -m src.main --case cases/33271749-sort-restaurants-list.txt
 ```
+
+### Running all test cases
+
+Use the test runner script to execute all test cases sequentially with timing and reporting:
+
+```bash
+./run_all_tests.sh
+```
+
+The script provides:
+- **Pre-flight checks**: Verifies OCR tool is compiled and ready
+- **Single run folder**: All test artifacts grouped under `artifacts/run-TIMESTAMP-HEX/`
+- **Case subfolders**: Each test case has its own folder within the run
+- **Per-case timing**: Shows duration for each test case
+- **Total suite timing**: Reports total execution time
+- **Pass/fail summary**: Final results with failed test tracking
+- **15-minute timeout per test**: Prevents hangs on slow operations
+- **Continues on failure**: Runs all tests even if one fails, shows complete summary
+
+Example output:
+```
+✅ Results: 3/3 tests passed
+
+⏱️ Timing per test case:
+  33271746-card-to-row:           3m 42s
+  33271747-row-to-card:           3m 34s
+  33271749-sort-restaurants:      5m 27s
+
+🕐 Total suite time: 12m 43s
+```
+
+### Adaptive stability waiting
+
+The runner uses intelligent UI stabilization detection instead of fixed sleeps:
+
+- **Adaptive observation**: Monitors node structure and OCR consistency between observations
+- **Region-aware checks**: When tapping data-loading buttons, focuses stability detection on affected regions while ignoring unrelated animations
+- **Faster convergence**: Requires only single stable observation (instead of multiple)
+- **Smart action detection**: 
+  - **Apply/Clear buttons**: Uses fixed 1s sleep (backend responds immediately, no stability wait needed)
+  - **Data-loading taps**: Uses adaptive waiting (waits for list/content to load)
+  - **Scroll actions**: Uses adaptive waiting (waits for new content to appear)
+- **Animation handling**: Gracefully ignores animated GIFs and loading spinners in non-critical UI areas
+
+This keeps test execution fast while remaining reliable under variable network conditions.
 
 Cases with scoped assertions or multiple semantic taps use the sequential
 executor. It advances one validated plan step at a time: deterministic
@@ -401,17 +450,21 @@ registry and its tests before relying on a new interaction type.
 ## Key files
 
 ```text
+run_all_tests.sh          Test runner script — executes all test cases with timing
 case.txt                  Default plain-text test case
 cases/                    Additional plain-text cases
 src/capabilities.py       Reusable capability registry and field contracts
 src/planning.py           Local AI compiler, schema, validation, plan queries
-src/main.py               Orchestrator, grounding gates, ADB execution
+src/main.py               Orchestrator, grounding gates, ADB execution, adaptive waiting
 src/recovery.py           Bounded interruption assessment and recovery
 tools/screen_ocr.swift    Local Apple Vision OCR with bounding boxes
 tests/test_planning.py    Plan compiler/validation contract tests
 tests/test_known_gates.py Navigation, control, scrolling, and safety tests
 tests/test_recovery.py    Recovery behavior and refusal tests
-artifacts/run-*           Plan, screenshots, hierarchy, decisions, result
+artifacts/run-*/          Run folders containing all test case results
+  */case-name/            Individual case artifacts
+    attempt-1/            First execution attempt artifacts
+    attempt-2/            Retry attempt artifacts (if needed)
 ```
 
 ## Setup on macOS
