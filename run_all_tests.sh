@@ -39,7 +39,7 @@ SUITE_START=$(date +%s)
 total=0
 passed=0
 failed_cases=()
-declare -A case_timings
+case_timings_file=$(mktemp)
 
 for case in cases/*.txt; do
   ((total++))
@@ -61,14 +61,14 @@ for case in cases/*.txt; do
     ((passed++))
     CASE_END=$(date +%s)
     CASE_DURATION=$((CASE_END - CASE_START))
-    case_timings["$case_name"]=$CASE_DURATION
+    echo "$case_name:$CASE_DURATION" >> "$case_timings_file"
     echo ""
     echo "✅ PASSED: $case_name (${CASE_DURATION}s)"
   else
     exit_code=$?
     CASE_END=$(date +%s)
     CASE_DURATION=$((CASE_END - CASE_START))
-    case_timings["$case_name"]=$CASE_DURATION
+    echo "$case_name:$CASE_DURATION" >> "$case_timings_file"
     if [ $exit_code -eq 124 ]; then
       echo "❌ TIMEOUT: $case_name exceeded 30 minutes (${CASE_DURATION}s)"
     else
@@ -89,12 +89,13 @@ echo "📊 Results: $passed/$total tests passed"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "⏱️ Timing per test case:"
-for case_name in "${!case_timings[@]}"; do
-  duration=${case_timings[$case_name]}
+while IFS=: read -r case_name duration; do
   minutes=$((duration / 60))
   seconds=$((duration % 60))
   printf "  %-45s %2dm %02ds\n" "$case_name:" "$minutes" "$seconds"
-done | sort
+done < "$case_timings_file" | sort
+
+rm -f "$case_timings_file"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
