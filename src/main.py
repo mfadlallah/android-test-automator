@@ -3094,6 +3094,13 @@ def main():
                 attempt_history=[]; attempt_recoveries=[]
                 try:
                     device.launch()
+                    # Wait for app to fully initialize before starting test
+                    # Take 2 observations to ensure UI is stable after app launch
+                    print('Waiting for app to fully initialize...')
+                    for i in range(3):
+                        device.observe(attempt_folder, 10 + i)
+                        if i < 2:
+                            time.sleep(0.5)
                     if needs_sequential_executor(plan):
                         assertion_assessor=(
                             lambda step,obs,before,attempt_folder=attempt_folder:
