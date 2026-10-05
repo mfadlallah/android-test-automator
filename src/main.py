@@ -3061,7 +3061,6 @@ def main():
         if args.check_only: print('READY: device, installed app, disk and local model found. Inference not yet tested.'); return 0
 
         # Support grouping multiple test cases into a single run folder
-        import os
         test_run_folder = os.environ.get('TEST_RUN_FOLDER')
         test_case_name = os.environ.get('TEST_CASE_NAME')
         if test_run_folder and test_case_name:
