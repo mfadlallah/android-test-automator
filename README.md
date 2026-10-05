@@ -45,11 +45,7 @@ flowchart TD
     VR -->|all required evidence| PS[PASSED]
 ```
 
-## Why this is plan-driven
-
-The runner no longer parses TestRail titles such as “card view to row view” in
-Python. The local model converts the complete plain-text case into capabilities
-with explicit roles and success conditions.
+## Plan compilation example
 
 Example input:
 
