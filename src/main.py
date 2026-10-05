@@ -181,6 +181,7 @@ class Device:
         required_checks = 1  # Reduced from 2 for faster convergence with animations
         import time as time_module
         start_time = time_module.time()
+        last_obs = None  # Cache to avoid redundant observe calls
 
         def filter_to_region(items, bounds):
             """Filter OCR/nodes to only those in target region."""
@@ -198,9 +199,11 @@ class Device:
 
         for attempt in range(1, int(max_wait / interval) + 1):
             try:
-                obs1 = self.observe(folder, index + 100 + attempt)
+                # Reuse last observation as obs1 if available (avoid redundant observe)
+                obs1 = last_obs if last_obs else self.observe(folder, index + 100 + attempt)
                 time.sleep(interval)
                 obs2 = self.observe(folder, index + 200 + attempt)
+                last_obs = obs2  # Cache for next iteration
 
                 # Filter to target region if specified
                 nodes1 = filter_to_region(obs1.get('nodes', []), target_bounds)
@@ -345,8 +348,9 @@ class Device:
 
         # Use adaptive stability waiting - full screen for taps (affects distant UI)
         # Reason: Button taps affect content elsewhere (e.g., Apply→list loads), not the button itself
+        # Some taps trigger backend operations (filters, sorting) that need longer waits
         if self.artifact_folder:
-            self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=10)
+            self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=20)
         else:
             time.sleep(1)  # fallback
 

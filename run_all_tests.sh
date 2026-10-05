@@ -46,12 +46,13 @@ for case in cases/*.txt; do
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "Test $total: $case_name"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "⏱️  Starting test (timeout: 15 minutes)..."
+  echo "⏱️  Starting test (timeout: 30 minutes)..."
   echo "📁 Artifacts: $RUN_FOLDER/$case_name"
   echo ""
 
   # Pass run folder to main.py via environment variable
-  if timeout 900 env TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
+  # 30-minute timeout per test (some backend operations like Apply filter are slow)
+  if timeout 1800 env TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
        python3 -m src.main --case "$case"; then
     ((passed++))
     echo ""
@@ -59,7 +60,7 @@ for case in cases/*.txt; do
   else
     exit_code=$?
     if [ $exit_code -eq 124 ]; then
-      echo "❌ TIMEOUT: $case_name exceeded 15 minutes"
+      echo "❌ TIMEOUT: $case_name exceeded 30 minutes"
     else
       echo "❌ FAILED: $case_name (exit code: $exit_code)"
     fi
