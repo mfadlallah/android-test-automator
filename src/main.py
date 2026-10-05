@@ -3054,7 +3054,17 @@ def main():
         if shutil.disk_usage(ROOT).free<500*1024*1024: raise Blocked('Free at least 500 MB before running')
         if not args.observe_only: check_model(args.model,not args.no_images)
         if args.check_only: print('READY: device, installed app, disk and local model found. Inference not yet tested.'); return 0
-        folder=ROOT/'artifacts'/(time.strftime('run-%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
+
+        # Support grouping multiple test cases into a single run folder
+        import os
+        test_run_folder = os.environ.get('TEST_RUN_FOLDER')
+        test_case_name = os.environ.get('TEST_CASE_NAME')
+        if test_run_folder and test_case_name:
+            # Organize as: artifacts/run-TIMESTAMP-HEX/case_name/
+            folder = ROOT / test_run_folder / test_case_name
+        else:
+            # Default behavior: create unique run folder for each test
+            folder = ROOT/'artifacts'/(time.strftime('run-%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
         folder.mkdir(parents=True)
         if args.observe_only:
             device.observe(folder,0); status='OBSERVED'; reason='Current screen captured locally; no API request or UI action'

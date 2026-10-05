@@ -27,6 +27,13 @@ else
 fi
 
 echo ""
+echo "📂 Creating artifacts folder for this run..."
+# Create a single run folder for all test cases
+RUN_FOLDER="artifacts/run-$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3)"
+mkdir -p "$RUN_FOLDER"
+echo "✅ Run folder: $RUN_FOLDER"
+echo ""
+
 echo "🚀 Running all test cases..."
 total=0
 passed=0
@@ -34,25 +41,29 @@ failed_cases=()
 
 for case in cases/*.txt; do
   ((total++))
+  case_name=$(basename "$case" .txt)
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "Test $total: $(basename $case)"
+  echo "Test $total: $case_name"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "⏱️  Starting test (timeout: 15 minutes)..."
+  echo "📁 Artifacts: $RUN_FOLDER/$case_name"
   echo ""
 
-  if timeout 900 python3 -m src.main --case "$case"; then
+  # Pass run folder to main.py via environment variable
+  if timeout 900 env TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
+       python3 -m src.main --case "$case"; then
     ((passed++))
     echo ""
-    echo "✅ PASSED: $(basename $case)"
+    echo "✅ PASSED: $case_name"
   else
     exit_code=$?
     if [ $exit_code -eq 124 ]; then
-      echo "❌ TIMEOUT: $(basename $case) exceeded 15 minutes"
+      echo "❌ TIMEOUT: $case_name exceeded 15 minutes"
     else
-      echo "❌ FAILED: $(basename $case) (exit code: $exit_code)"
+      echo "❌ FAILED: $case_name (exit code: $exit_code)"
     fi
-    failed_cases+=("$(basename $case)")
+    failed_cases+=("$case_name")
   fi
 done
 
