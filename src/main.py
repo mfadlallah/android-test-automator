@@ -348,9 +348,10 @@ class Device:
 
         # Use adaptive stability waiting - full screen for taps (affects distant UI)
         # Reason: Button taps affect content elsewhere (e.g., Apply→list loads), not the button itself
-        # Some taps trigger backend operations (filters, sorting) that need longer waits
+        # Reduced timeout: observe() calls to Ollama can be slow; limit waiting to 5s max
+        # If backend is responsive, UI stabilizes quickly; if not, fallback to fixed sleep
         if self.artifact_folder:
-            self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=20)
+            self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=5, interval=0.3)
         else:
             time.sleep(1)  # fallback
 
