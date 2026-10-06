@@ -11,13 +11,12 @@ Automation setup:
 - Do not count this setup action as the tested row-to-card transition.
 
 Steps:
-1. Verify app is on Home screen with "What would you like to order?" label visible.
-2. Tap the Restaurants label on Home (or المطاعم in Arabic).
-3. Recover safely from any optional foreground sheet.
-4. Set up row view (right toggle option) as the initial state and verify it is selected.
-5. Tap card view (left toggle option) to change to card view.
-6. Verify that restaurant items change from row view to card view.
-7. Scroll down within the vertical restaurant list.
+1. Tap the Restaurants label on Home (or المطاعم in Arabic).
+2. Recover safely from any optional foreground sheet.
+3. Set up row view (right toggle option) as the initial state and verify it is selected.
+4. Tap card view (left toggle option) to change to card view.
+5. Verify that restaurant items change from row view to card view.
+6. Scroll down within the vertical restaurant list.
 
 Expected result:
 - Card view remains selected.
