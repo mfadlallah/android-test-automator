@@ -2679,8 +2679,11 @@ def navigation_retry_from_home(obs,history,max_taps=2):
 
 
 def restaurants_ready_for_layout(obs,history,screenshot_context=False):
+    # Check for navigation via explicit navigation_gate OR via recovery gates
+    # that handled the Hour Offer (indicating app navigated to Restaurants)
+    nav_sources={'navigation_gate','hour_offer_gate','delivery_address_gate'}
     navigated=any(
-        item.get('usage',{}).get('source')=='navigation_gate'
+        item.get('usage',{}).get('source') in nav_sources
         and item['decision']['action']=='tap'
         for item in history
     )
