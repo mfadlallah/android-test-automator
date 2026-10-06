@@ -14,10 +14,11 @@ Steps:
 1. Verify app is on Home screen with "What would you like to order?" label visible.
 2. Tap the Restaurants label on Home (or المطاعم in Arabic).
 3. Recover safely from any optional foreground sheet.
-4. Verify that row view (right toggle option) is selected.
-5. Tap card view (left toggle option).
-6. Verify that restaurant items change from row view to card view.
-7. Scroll down within the vertical restaurant list.
+4. Set up row view (right toggle option) as the initial state.
+5. Verify that row view is now selected.
+6. Tap card view (left toggle option) to change to card view.
+7. Verify that restaurant items change from row view to card view.
+8. Scroll down within the vertical restaurant list.
 
 Expected result:
 - Card view remains selected.
