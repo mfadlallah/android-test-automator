@@ -2135,7 +2135,12 @@ GROUNDING_ERRORS=(
 
 def ignore_ungrounded_optional_after_back(
         assessment,recovery_action,obs,history):
-    """Ignore model-only optional claims on a grounded stable app screen."""
+    """Ignore model-only optional claims on a grounded stable app screen.
+
+    After recovery successfully closes an interruption (tap or back), the app
+    may be in a transient state. If recovery detects another ungrounded optional
+    claim on a stable screen immediately after, ignore it as likely false-positive.
+    """
     if recovery_action is None or assessment.get('kind')!='optional':
         return False
     decision,_=recovery_action
@@ -2145,7 +2150,15 @@ def ignore_ungrounded_optional_after_back(
         return False
     stable_screen=(current_restaurants_listing(obs) or
                    current_home_screen(obs))
-    return stable_screen and not explicit_optional_text_evidence(obs)
+    if not stable_screen:
+        return False
+
+    # After recovery just successfully dismissed an interruption, be more forgiving
+    # about transient ungrounded claims on stable screens.
+    if prior_recovery_dismissal(history):
+        return True
+
+    return not explicit_optional_text_evidence(obs)
 
 
 def optional_grounding_back_fallback(assessment, recovery_action, obs, history):
