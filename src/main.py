@@ -2523,17 +2523,19 @@ def locate_layout_toggle_visual(
         x=(toggle['bounds'][0]+toggle['bounds'][2])//2
         y=(toggle['bounds'][1]+toggle['bounds'][3])//2
     if setup:
-        print('Layout setup: idempotently targeting '+name+' view on '+
+        view_name=transition['initial_name']
+        print('Layout setup: idempotently targeting '+view_name+' view on '+
               side+'.',flush=True)
         return ({
             'action':'tap','node':None,'direction':'none',
-            'reason':'Establish the '+name+
+            'reason':'Establish the '+view_name+
                      ' view precondition with an idempotent segment tap.',
             'evidence':'The initial segment is targeted directly; no color, '+
                        'theme, or selected-state inference is required.',
             'vision_point':[x,y],'image_size':[width,height],
         },{'source':'layout_precondition_setup','transition':transition})
-    print('Layout test: tapping '+name+' view on '+side+'.',flush=True)
+    view_name=transition['target_name']
+    print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
     return ({
         'action':'tap','node':None,'direction':'none',
         'reason':'Toggle Restaurants from '+transition['initial_name']+
