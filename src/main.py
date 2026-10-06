@@ -31,6 +31,7 @@ from .planning import (
     plan_summary,
     steps_for,
 )
+from .adapters import GenericAdapter
 
 ROOT = Path(__file__).resolve().parents[1]
 VISUAL_MODEL='qwen2.5vl:3b'
@@ -39,6 +40,55 @@ VISUAL_ENABLED=True
 
 class Blocked(RuntimeError):
     pass
+
+
+class AdapterRegistry:
+    """Registry of domain adapters for test execution.
+
+    Currently uses a single GenericAdapter that works for all domains
+    without domain-specific knowledge.
+    """
+
+    def __init__(self):
+        """Initialize with available adapters."""
+        self.adapter = GenericAdapter()
+
+    def get_adapter(self):
+        """Get the active adapter (currently generic)."""
+        return self.adapter
+
+    def ground_target(self, target, observation, hints=None):
+        """Ground a semantic target using adapter."""
+        bounds = self.adapter.ground_target(target, observation, hints)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+    def find_scrollable(self, target, observation):
+        """Find scrollable region for target using adapter."""
+        bounds = self.adapter.find_scrollable_region(target, observation)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+    def get_assertion_crop(self, target, observation, step):
+        """Get crop bounds for assertion using adapter."""
+        bounds = self.adapter.get_assertion_crop(target, observation, step)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+
+# Global adapter registry (initialized on first use)
+_adapter_registry = None
+
+
+def get_adapter_registry():
+    """Get or create the global adapter registry."""
+    global _adapter_registry
+    if _adapter_registry is None:
+        _adapter_registry = AdapterRegistry()
+    return _adapter_registry
 
 def parse_nodes(xml, package):
     root = ET.fromstring(xml)
@@ -301,34 +351,16 @@ class Device:
                 time.sleep(1)  # fallback
             return
         if action not in ('tap','scroll'): raise Blocked('Unsupported action')
-        # RESTAURANTS_SCREEN_SCROLL_GUARD
+
+        # Generic scroll validation using adapter
         if action == 'scroll':
-            nodes = observation['nodes']
+            # Verify target node is scrollable (generic check, no hardcoding)
+            target_node = decision.get('node')
+            node = next((n for n in observation['nodes'] if n['node'] == target_node), None)
 
-            def has_id(node, suffix):
-                return node.get('resource_id', '').endswith(
-                    ':id/' + suffix
-                )
-
-            title_found = any(
-                has_id(n, 'vendors_title') for n in nodes
-            )
-            lists = [
-                n for n in nodes
-                if has_id(n, 'vendorsRecycler')
-                and n.get('scrollable')
-            ]
-
-            if not title_found or len(lists) != 1:
+            if not node or not node.get('scrollable'):
                 raise Blocked(
-                    'Scroll refused: Restaurants screen is not confirmed. '
-                    'The agent must tap Restaurants on Home first.'
-                )
-
-            if decision['node'] != lists[0]['node']:
-                raise Blocked(
-                    'Scroll refused: target must be vendorsRecycler, '
-                    'not Home or a horizontal carousel.'
+                    'Scroll target is not scrollable or not found'
                 )
 
         node=next((n for n in observation['nodes'] if n['node']==decision['node']),None)
@@ -704,7 +736,28 @@ def semantic_target_bounds(obs,target):
 
 
 def assertion_crop_bounds(obs,step):
-    """Return a safe target crop for label-based visual assertions."""
+    """Return a safe target crop for label-based visual assertions.
+
+    Uses generic adapter for semantic matching and item detection.
+    Falls back to semantic target grounding for non-item assertions.
+    """
+    import struct
+
+    target=' '.join(str(step.get('target','')).split()).casefold()
+
+    # Try adapter-based cropping for any target
+    registry = get_adapter_registry()
+    adapter_crop = registry.get_assertion_crop(step.get('target',''), obs, step)
+    if adapter_crop:
+        return adapter_crop
+
+    # Fallback: semantic target bounds for non-item assertions
+    if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
+        return semantic_target_bounds(obs,step.get('target',''))
+    return None
+
+    # Note: Keep old logic below as reference for edge cases
+    # TODO: Remove old vendor-specific logic after Phase 3 verification
     import struct
 
     target=' '.join(str(step.get('target','')).split()).casefold()
