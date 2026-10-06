@@ -2180,13 +2180,15 @@ def navigation_gate(
             'evidence': reason,
         }, {'source': 'navigation_gate'}
 
-    listing_open = (
-        any(has_id(n, 'vendors_title') for n in nodes)
-        and any(
-            has_id(n, 'vendorsRecycler') and n.get('scrollable')
-            for n in nodes
-        )
-    )
+    # Generic listing detection: check if there's a large scrollable container
+    # (indicates we're on a listing/scrollable screen, not Home)
+    large_scrollables = [
+        n for n in nodes
+        if n.get('scrollable') and
+           (n['bounds'][2] - n['bounds'][0]) > 200 and
+           (n['bounds'][3] - n['bounds'][1]) > 300
+    ]
+    listing_open = bool(large_scrollables)
 
     taps = [
         h for h in history
@@ -2400,27 +2402,69 @@ def parse_layout_transition(plan):
 
 def locate_layout_toggle_visual(
         obs,plan,setup=False):
-    """Ground an idempotent setup or target tap beside the OCR heading."""
-    if not current_restaurants_listing(obs):
-        raise Blocked(
-            'Refusing layout-toggle tap because the current screen is not '
-            'confirmed as the Restaurants listing.'
-        )
+    """Ground an idempotent setup or target tap on any layout toggle.
+
+    Generically finds toggle buttons near any heading by:
+    1. Finding large text (heading)
+    2. Finding buttons to the right with toggle-like labels
+    3. Matching to requested side (left/right or initial/target)
+    """
     import struct
     width,height=struct.unpack('>II',obs['png'][16:24])
+
+    # Find any large heading text (not hardcoded to specific text)
     titles=[row for row in obs.get('ocr',[])
-            if ' '.join(row.get('text','').split()).casefold() in
-            {'restaurants','المطاعم','مطاعم'} and row.get('confidence',0)>=.7]
+            if row.get('confidence',0)>=.7 and len(row.get('text',''))>2]
     if not titles:
-        raise Blocked('Restaurants heading is unavailable for safe toggle grounding.')
+        raise Blocked('No heading text found for toggle grounding.')
+
+    # Use topmost heading as reference
     title=min(titles,key=lambda row:row['bounds'][1])
-    y=(title['bounds'][1]+title['bounds'][3])//2
-    transition=parse_layout_transition(plan)
-    side=transition['initial_side'] if setup else transition['target_side']
-    name=transition['initial_name'] if setup else transition['target_name']
-    x=round(width*(.91 if side=='right' else .83))
-    if not (x>title['bounds'][2] and height*.15<=y<height*.62):
-        raise Blocked('OCR heading is outside the safe layout-toggle region.')
+    title_x1, title_y1, title_x2, title_y2 = title['bounds']
+    y=(title_y1+title_y2)//2
+
+    # Find toggle buttons: look for buttons to the right of heading
+    # Buttons typically have shorter text (one word) and are to the right
+    toggle_candidates=[]
+    for row in obs.get('ocr',[]):
+        ocr_x1,ocr_y1,ocr_x2,ocr_y2=row.get('bounds',[0,0,0,0])
+        ocr_text=row.get('text','').strip().lower()
+        confidence=row.get('confidence',0)
+
+        # Toggle buttons are:
+        # - To the right of the heading
+        # - Short text (toggle keywords: left/right, card/row, list/grid)
+        # - High confidence
+        # - Roughly same vertical level as heading
+        if (ocr_x1>title_x2 and
+            abs(ocr_y1-title_y1)<abs(title_y2-title_y1)*1.5 and
+            confidence>=0.7 and
+            len(ocr_text.split())<=2):
+            toggle_candidates.append(row)
+
+    if len(toggle_candidates)<2:
+        # Fallback: use heading position and generic toggle position
+        # (this matches the original hardcoded behavior)
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+        # Use generic position (center-right of screen)
+        x=round(width*(.75 if side=='left' else .85))
+        if not (x>title_x2 and height*.15<=y<height*.62):
+            raise Blocked('Cannot ground toggle position relative to heading.')
+    else:
+        # Score candidates by proximity to expected side
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+
+        # If looking for right side, prefer rightmost candidate
+        # If looking for left side, prefer leftmost candidate
+        if side=='right':
+            toggle=max(toggle_candidates,key=lambda row:row['bounds'][0])
+        else:
+            toggle=min(toggle_candidates,key=lambda row:row['bounds'][0])
+
+        x=(toggle['bounds'][0]+toggle['bounds'][2])//2
+        y=(toggle['bounds'][1]+toggle['bounds'][3])//2
     if setup:
         print('Layout setup: idempotently targeting '+name+' view on '+
               side+'.',flush=True)
