@@ -6,21 +6,22 @@ Preconditions:
 - Home is displayed after launch.
 
 Steps:
-1. Tap the Restaurants label on Home (or المطاعم in Arabic).
-2. Recover safely from any optional foreground sheet.
-3. Verify the Filters pill is visible.
-4. Verify that the first restaurant item contains the exact label "Ad".
-5. Tap the Filters pill.
-6. Verify that the Filters sheet is visible.
-7. Tap the "Ratings (High To Low)" option under Sorting options.
-8. Verify that "Ratings (High To Low)" is selected.
-9. Tap the Apply button.
-10. Verify that the Filters pill contains the indicator label "1".
-11. Verify that the Filters sheet is hidden.
-12. Wait until the restaurant items change and finish loading.
-13. Verify that the refreshed restaurant items are visible.
-14. Verify that the first restaurant item does not contain the exact label "Ad".
-15. Scroll down within the vertical restaurant list.
+1. Verify app is on Home screen with "What would you like to order?" label visible.
+2. Tap the Restaurants label on Home (or المطاعم in Arabic).
+3. Recover safely from any optional foreground sheet.
+4. Verify the Filters pill is visible.
+5. Verify that the first restaurant item contains the exact label "Ad".
+6. Tap the Filters pill.
+7. Verify that the Filters sheet is visible.
+8. Tap the "Ratings (High To Low)" option under Sorting options.
+9. Verify that "Ratings (High To Low)" is selected.
+10. Tap the Apply button.
+11. Verify that the Filters pill contains the indicator label "1".
+12. Verify that the Filters sheet is hidden.
+13. Wait until the restaurant items change and finish loading.
+14. Verify that the refreshed restaurant items are visible.
+15. Verify that the first restaurant item does not contain the exact label "Ad".
+16. Scroll down within the vertical restaurant list.
 
 Expected result:
 - The Filters pill contains indicator label "1".
