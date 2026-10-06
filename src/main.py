@@ -2504,7 +2504,9 @@ def locate_layout_toggle_visual(
         side=transition['initial_side'] if setup else transition['target_side']
         # Use generic position (center-right of screen)
         x=round(width*(.75 if side=='left' else .85))
-        if not (x>title_x2 and height*.15<=y<height*.62):
+        # Heading can be near top (y as low as ~0.05) or mid-screen, not just center
+        # Allow full vertical range as long as x is to the right of heading
+        if not (x>title_x2):
             raise Blocked('Cannot ground toggle position relative to heading.')
     else:
         # Score candidates by proximity to expected side
