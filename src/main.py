@@ -2499,11 +2499,10 @@ def locate_layout_toggle_visual(
 
     if len(toggle_candidates)<2:
         # Fallback: use heading position and generic toggle position
-        # (this matches the original hardcoded behavior)
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
-        # Use generic position (center-right of screen)
-        x=round(width*(.75 if side=='left' else .85))
+        # Use generic position: left button at ~25%, right button at ~75%
+        x=round(width*(.25 if side=='left' else .75))
         # Heading can be near top (y as low as ~0.05) or mid-screen, not just center
         # Allow full vertical range as long as x is to the right of heading
         if not (x>title_x2):
