@@ -2180,15 +2180,39 @@ def navigation_gate(
             'evidence': reason,
         }, {'source': 'navigation_gate'}
 
-    # Generic listing detection: check if there's a large scrollable container
-    # (indicates we're on a listing/scrollable screen, not Home)
+    # Generic listing detection: check if we're on a listing screen
+    # Strategy: Look for large scrollable + heading text that matches target
+    # This confirms it's the right listing, not just any scrollable screen
     large_scrollables = [
         n for n in nodes
         if n.get('scrollable') and
            (n['bounds'][2] - n['bounds'][0]) > 200 and
            (n['bounds'][3] - n['bounds'][1]) > 300
     ]
-    listing_open = bool(large_scrollables)
+
+    # Verify by checking OCR for target keyword
+    # (e.g., looking for Restaurants/restaurants to confirm Restaurants listing)
+    target_keywords = set()
+    if target.lower() in {'restaurants', 'مطاعم', 'المطاعم'}:
+        target_keywords = {'restaurants', 'مطاعم', 'المطاعم', 'vendors'}
+    elif target.lower() in {'meals', 'وجبات'}:
+        target_keywords = {'meals', 'وجبات'}
+    elif target.lower() in {'cuisines', 'المطابخ'}:
+        target_keywords = {'cuisines', 'المطابخ'}
+
+    # Check OCR for target keywords
+    has_target_keyword = False
+    if target_keywords:
+        ocr_text = ' '.join([
+            row.get('text', '').lower()
+            for row in obs.get('ocr', [])
+            if row.get('confidence', 0) >= 0.7
+        ])
+        has_target_keyword = any(kw in ocr_text for kw in target_keywords)
+
+    # Listing is open if: large scrollable exists AND target keyword found
+    # OR if no target keywords defined (fallback for unknown targets)
+    listing_open = bool(large_scrollables) and (has_target_keyword or not target_keywords)
 
     taps = [
         h for h in history
