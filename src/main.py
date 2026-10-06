@@ -2118,9 +2118,16 @@ def explicit_optional_text_evidence(obs):
 
 
 def prior_recovery_dismissal(history):
-    """Whether this recovery plan step already performed a dismiss action."""
+    """Whether recovery recently performed a dismiss action.
+
+    Checks for either explicit recover_optional plan steps or gate/recovery sources
+    that successfully dismissed an interruption (Hour Offer, modal, etc).
+    """
+    recovery_sources={'recovery','hour_offer_gate','delivery_address_gate',
+                      'in_app_message_gate','unexpected_modal_back_gate'}
     return any(
-        item.get('plan_step',{}).get('capability')=='recover_optional'
+        (item.get('plan_step',{}).get('capability')=='recover_optional'
+         or item.get('usage',{}).get('source') in recovery_sources)
         and item.get('decision',{}).get('action') in {'tap','back'}
         for item in history
     )
