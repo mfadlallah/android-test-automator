@@ -2467,8 +2467,41 @@ def parse_layout_transition(plan):
         raise Blocked(str(exc)) from None
 
 
+def save_toggle_crop(obs, x, y, side, artifact_folder=None):
+    """Save a cropped screenshot of the toggle area for visual evidence."""
+    if not artifact_folder or 'png' not in obs:
+        return
+    try:
+        from PIL import Image
+        import io
+        png = obs['png']
+        img = Image.open(io.BytesIO(png))
+        width, height = img.size
+
+        # Crop around the tap point: 120px square centered on tap
+        crop_size = 120
+        left = max(0, x - crop_size // 2)
+        top = max(0, y - crop_size // 2)
+        right = min(width, left + crop_size)
+        bottom = min(height, top + crop_size)
+
+        # Adjust if crop goes out of bounds
+        if right - left < crop_size:
+            left = max(0, right - crop_size)
+        if bottom - top < crop_size:
+            top = max(0, bottom - crop_size)
+
+        cropped = img.crop((left, top, right, bottom))
+
+        artifact_folder = Path(artifact_folder)
+        crop_path = artifact_folder / f'toggle-crop-{side}.png'
+        cropped.save(crop_path)
+        print(f'DEBUG saved toggle crop: {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+    except Exception as e:
+        print(f'DEBUG failed to save toggle crop: {e}',flush=True)
+
 def locate_layout_toggle_visual(
-        obs,plan,setup=False):
+        obs,plan,setup=False,artifact_folder=None):
     """Ground an idempotent setup or target tap on any layout toggle.
 
     Generically finds toggle buttons near any heading by:
@@ -2654,6 +2687,9 @@ def locate_layout_toggle_visual(
         x=(toggle['bounds'][0]+toggle['bounds'][2])//2
         y=(toggle['bounds'][1]+toggle['bounds'][3])//2
         print(f'DEBUG selected toggle: text="{toggle.get("text")}", x={x}, y={y}',flush=True)
+    # Save visual evidence of toggle location
+    save_toggle_crop(obs, x, y, side, artifact_folder)
+
     if setup:
         view_name=transition['initial_name']
         print('Layout setup: idempotently targeting '+view_name+' view on '+
@@ -2704,7 +2740,7 @@ def verify_layout_change(obs, baseline):
     return False,'Restaurant OCR geometry did not change after toggle tap.'
 
 
-def layout_toggle_and_scroll_gate(obs, history, plan):
+def layout_toggle_and_scroll_gate(obs, history, plan, artifact_folder=None):
     taps=[item for item in history
           if item.get('usage',{}).get('source')=='layout_toggle_gate'
           and item['decision']['action']=='tap']
@@ -2717,14 +2753,14 @@ def layout_toggle_and_scroll_gate(obs, history, plan):
                        if item.get('usage',{}).get('source')==
                        'layout_precondition_settle']
         if not setup_taps:
-            return locate_layout_toggle_visual(obs,plan,setup=True)
+            return locate_layout_toggle_visual(obs,plan,setup=True,artifact_folder=artifact_folder)
         if not setup_settles:
             return ({
                 'action':'wait','node':None,'direction':'none',
                 'reason':'Allow the idempotent layout setup to settle.',
                 'evidence':'The required initial segment was targeted directly.',
             },{'source':'layout_precondition_settle'})
-        return locate_layout_toggle_visual(obs,plan,setup=False)
+        return locate_layout_toggle_visual(obs,plan,setup=False,artifact_folder=artifact_folder)
     baseline=taps[-1]['usage'].get('baseline',{})
     transition=(taps[-1]['usage'].get('transition') or
                 parse_layout_transition(plan))
@@ -3280,7 +3316,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
                 decision,usage=recovery_action
             elif (control_required and restaurants_ready_for_layout(
                     obs,history,screenshot_context)):
-                decision,usage=layout_toggle_and_scroll_gate(obs,history,plan)
+                decision,usage=layout_toggle_and_scroll_gate(obs,history,plan,folder)
             else:
                 decision,usage=navigation_gate(
                     planner,obs,previous,history,tap_target,scroll_required,
