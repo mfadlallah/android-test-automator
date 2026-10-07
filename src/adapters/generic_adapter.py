@@ -396,23 +396,47 @@ class GenericAdapter(DomainAdapter):
         observation: Dict[str, Any],
         container_bounds: Tuple[int, int, int, int]
     ) -> Optional[Tuple[int, int, int, int]]:
-        """Find first visible item in a container."""
+        """Find first visible item in a container using hierarchy parent relationships."""
         cx1, cy1, cx2, cy2 = container_bounds
 
-        # Find direct children of container
-        candidates = []
-        for node in observation.get('nodes', []):
-            # Simple heuristic: if parent node ID matches container
-            # (this is simplified; real implementation would check parent)
-            nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
-            width = nx2 - nx1
-            height = ny2 - ny1
+        nodes = observation.get('nodes', [])
+        if not nodes:
+            return None
 
-            # Item must be substantial and within container
-            if (width > 50 and height > 50 and
-                nx2 > cx1 and nx1 < cx2 and
-                ny2 > cy1 and ny1 < cy2):
-                candidates.append((nx1, ny1, nx2, ny2))
+        # Find the container node itself
+        container_node_idx = None
+        for idx, node in enumerate(nodes):
+            nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+            if nx1 == cx1 and ny1 == cy1 and nx2 == cx2 and ny2 == cy2:
+                container_node_idx = idx
+                break
+
+        # If we found the container, look for its direct children
+        candidates = []
+        if container_node_idx is not None:
+            # Find all direct children of the container
+            for idx, node in enumerate(nodes):
+                if node.get('parent') == container_node_idx:
+                    nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+                    width = nx2 - nx1
+                    height = ny2 - ny1
+
+                    # Items should be substantial and visible
+                    if width > 50 and height > 50 and ny2 > cy1:
+                        candidates.append((nx1, ny1, nx2, ny2))
+
+        # If direct children search didn't work, fall back to bounds-based search
+        if not candidates:
+            for node in nodes:
+                nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+                width = nx2 - nx1
+                height = ny2 - ny1
+
+                # Item must be substantial and within container
+                if (width > 50 and height > 50 and
+                    nx2 > cx1 and nx1 < cx2 and
+                    ny2 > cy1 and ny1 < cy2):
+                    candidates.append((nx1, ny1, nx2, ny2))
 
         if not candidates:
             return None
