@@ -194,6 +194,34 @@ Resource matching splits both `camelCase` and `snake_case`. For example,
 treated as proof of success by itself; destination/layout/scroll assertions
 still require observed evidence.
 
+## Generic layout control grounding
+
+Two-option layout controls (Card/Row, Light/Dark, List/Map, etc.) are grounded
+using generic semantic detection instead of domain-specific resource IDs:
+
+**Heading detection:**
+- Filters content-area headings by position (y ≥ 500px) to exclude status bar
+  and header regions
+- Excludes wide elements (>50% screen width) to skip search bars and banners
+- Excludes UI control text (starts with +/-, contains "filter", "delivery")
+- Selects topmost remaining heading (e.g., "Restaurants", "Categories", "View Type")
+
+**Toggle positioning:**
+- Positions buttons right-aligned using Material Design layout patterns
+- Vertically aligns with heading using standard ConstraintLayout constraints
+  (RadioGroup.top/bottom = vendors_title.top/bottom)
+- Distributes remaining screen width: left button at width×75%, right button at width×90%
+- Handles dynamic heading widths and screen sizes without hardcoding
+
+**Visual evidence:**
+- Saves 120×120px cropped screenshot centered on tap coordinates
+- Multi-tool fallback: PIL (Python) → ImageMagick → ffmpeg → full screenshot + JSON
+- Records exact tap coordinates and crop bounds in metadata
+- Works on any environment: cloud, local, macOS, Linux
+
+This generic approach eliminates all domain-specific code and works for any
+heading-adjacent two-option control across all apps.
+
 ## Capability registry
 
 The current safe plan schema accepts these reusable capabilities:
@@ -435,12 +463,32 @@ observed evidence.
 - A historical successful screen does not authorize an action on the current
   screen; every sensitive action must be grounded again.
 
+## Generic layout control adapter
+
+The layout control execution is now **completely domain-agnostic**, using semantic
+heading detection and intelligent toggle positioning instead of hardcoded
+resource IDs. The system:
+
+- **Detects any heading**: Filters content-area headings by position (y≥500px),
+  width (<50% of screen), excluding banners and UI controls
+- **Positions toggles generically**: Right-aligns buttons using Material Design
+  patterns, vertically aligned with the heading using standard ConstraintLayout
+  constraints
+- **Works with any labels**: Card/Row, Light/Dark, List/Map, Grid/Gallery, or
+  any two-option control — no hardcoding required
+- **Captures visual evidence**: Multi-tool fallback cropping (PIL → ImageMagick →
+  ffmpeg) saves 120×120px cropped toggle screenshots with exact tap coordinates
+  
+This eliminates all domain-specific adapter code. The same generic execution
+handles Restaurants layout controls, Category toggles, View-Type controls, or
+any similar UI across different apps.
+
 ## Current boundary
 
 This remains a PoC, not an unrestricted autonomous mobile tester. The planner
-is generic, but the hardened device adapters currently have the strongest
-coverage for Home navigation, the Restaurants listing, two-option layout
-controls, optional sheets, and vertical-list scrolling. Extend the capability
+is generic, and the hardened device adapters now provide universal coverage for
+Home navigation, content headings with adjacent toggle controls, optional sheets,
+and vertical-list scrolling without app-specific code. Extend the capability
 registry and its tests before relying on a new interaction type.
 
 ## Key files
@@ -452,7 +500,12 @@ cases/                    Additional plain-text cases
 src/capabilities.py       Reusable capability registry and field contracts
 src/planning.py           Local AI compiler, schema, validation, plan queries
 src/main.py               Orchestrator, grounding gates, ADB execution, adaptive waiting
+                          • save_toggle_crop(): Multi-tool crop capture (PIL/ImageMagick/ffmpeg)
+                          • locate_layout_toggle_visual(): Generic toggle detection & positioning
 src/recovery.py           Bounded interruption assessment and recovery
+src/adapters/             Generic domain-agnostic adapters
+  base_adapter.py         Abstract DomainAdapter interface
+  generic_adapter.py      Universal GenericAdapter (no domain-specific code)
 tools/screen_ocr.swift    Local Apple Vision OCR with bounding boxes
 tests/test_planning.py    Plan compiler/validation contract tests
 tests/test_known_gates.py Navigation, control, scrolling, and safety tests
@@ -520,6 +573,12 @@ directory contains:
   scoped visual assertion, such as the first restaurant item.
 - `NN-assertion-step-ID-crop.json`: crop bounds, expected value, model
   attempts/retry state, validation errors, and the final assertion evidence.
+- `toggle-crop-left.png` / `toggle-crop-right.png`: cropped screenshot
+  evidence of toggle button location when tapping layout controls.
+- `toggle-crop-{side}.json`: toggle tap coordinates and crop bounds for
+  reference when cropped image unavailable.
+- `toggle-screenshot-{side}.png`: full screenshot fallback when image
+  cropping tools unavailable.
 - `result.json`: that attempt's status, history, and recovery events.
 
 The root `result.json` records all attempt summaries, the final status, and
