@@ -280,11 +280,23 @@ class GenericAdapter(DomainAdapter):
     def _find_all_scrollables(
         self, observation: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Find all scrollable containers in hierarchy."""
+        """Find all scrollable containers in hierarchy using ADB metadata."""
         scrollables = []
 
         for node in observation.get('nodes', []):
-            if node.get('scrollable'):
+            # Check scrollable flag OR resource ID/class name indicating list containers
+            resource_id = node.get('resource_id', '').lower()
+            node_class = node.get('class', '').lower()
+
+            is_scrollable = node.get('scrollable', False)
+            is_list_container = (
+                'recycler' in resource_id or 'recycler' in node_class or
+                'listview' in resource_id or 'listview' in node_class or
+                'scrollview' in resource_id or 'scrollview' in node_class or
+                'viewpager' in resource_id or 'viewpager' in node_class
+            )
+
+            if is_scrollable or is_list_container:
                 bounds = node.get('bounds', [0, 0, 0, 0])
                 if len(bounds) == 4:
                     width = bounds[2] - bounds[0]
