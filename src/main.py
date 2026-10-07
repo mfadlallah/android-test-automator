@@ -2125,12 +2125,15 @@ def prior_recovery_dismissal(history):
     """
     recovery_sources={'recovery','hour_offer_gate','delivery_address_gate',
                       'in_app_message_gate','unexpected_modal_back_gate'}
-    return any(
+    result = any(
         (item.get('plan_step',{}).get('capability')=='recover_optional'
          or item.get('usage',{}).get('source') in recovery_sources)
         and item.get('decision',{}).get('action') in {'tap','back'}
         for item in history
     )
+    if result:
+        print(f'DEBUG prior_recovery_dismissal: FOUND recovery action, history_len={len(history)}',flush=True)
+    return result
 
 
 GROUNDING_ERRORS=(
@@ -2157,15 +2160,20 @@ def ignore_ungrounded_optional_after_back(
         return False
     stable_screen=(current_restaurants_listing(obs) or
                    current_home_screen(obs))
+    print(f'DEBUG ignore_ungrounded: stable_screen={stable_screen}',flush=True)
     if not stable_screen:
         return False
 
     # After recovery just successfully dismissed an interruption, be more forgiving
     # about transient ungrounded claims on stable screens.
-    if prior_recovery_dismissal(history):
+    prior_dismissal=prior_recovery_dismissal(history)
+    if prior_dismissal:
+        print(f'DEBUG ignore_ungrounded: IGNORING due to prior recovery dismissal',flush=True)
         return True
 
-    return not explicit_optional_text_evidence(obs)
+    text_evidence=explicit_optional_text_evidence(obs)
+    print(f'DEBUG ignore_ungrounded: has explicit text={text_evidence}, will ignore={not text_evidence}',flush=True)
+    return not text_evidence
 
 
 def optional_grounding_back_fallback(assessment, recovery_action, obs, history):
@@ -2466,10 +2474,12 @@ def locate_layout_toggle_visual(
     """
     import struct
     width,height=struct.unpack('>II',obs['png'][16:24])
+    print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}',flush=True)
 
     # Find any large heading text (not hardcoded to specific text)
     titles=[row for row in obs.get('ocr',[])
             if row.get('confidence',0)>=.7 and len(row.get('text',''))>2]
+    print(f'DEBUG found {len(titles)} heading candidates: {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
         raise Blocked('No heading text found for toggle grounding.')
 
@@ -2477,14 +2487,17 @@ def locate_layout_toggle_visual(
     title=min(titles,key=lambda row:row['bounds'][1])
     title_x1, title_y1, title_x2, title_y2 = title['bounds']
     y=(title_y1+title_y2)//2
+    print(f'DEBUG heading: text="{title.get("text")}", bounds=[{title_x1},{title_y1},{title_x2},{title_y2}], y={y}',flush=True)
 
     # Find toggle buttons: look for buttons to the right of heading
     # Buttons typically have shorter text (one word) and are to the right
     toggle_candidates=[]
+    all_ocr_texts=[]
     for row in obs.get('ocr',[]):
         ocr_x1,ocr_y1,ocr_x2,ocr_y2=row.get('bounds',[0,0,0,0])
         ocr_text=row.get('text','').strip().lower()
         confidence=row.get('confidence',0)
+        all_ocr_texts.append(f'"{ocr_text}"({confidence:.2f})')
 
         # Toggle buttons are:
         # - To the right of the heading
@@ -2496,31 +2509,41 @@ def locate_layout_toggle_visual(
             confidence>=0.7 and
             len(ocr_text.split())<=2):
             toggle_candidates.append(row)
+            print(f'DEBUG toggle candidate: "{ocr_text}" at [{ocr_x1},{ocr_y1},{ocr_x2},{ocr_y2}]',flush=True)
 
+    print(f'DEBUG all OCR texts (first 10): {all_ocr_texts[:10]}',flush=True)
+    print(f'DEBUG found {len(toggle_candidates)} toggle candidates',flush=True)
     if len(toggle_candidates)<2:
         # Fallback: use heading position and generic toggle position
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
         # Use generic position: left button at ~25%, right button at ~75%
         x=round(width*(.25 if side=='left' else .75))
+        print(f'DEBUG fallback position: side={side}, setup={setup}, x={x} (25% of {width}={width*.25}, 75% of {width}={width*.75}), title_x2={title_x2}',flush=True)
         # Heading can be near top (y as low as ~0.05) or mid-screen, not just center
         # Allow full vertical range as long as x is to the right of heading
         if not (x>title_x2):
+            print(f'DEBUG fallback validation failed: x={x} NOT > title_x2={title_x2}',flush=True)
             raise Blocked('Cannot ground toggle position relative to heading.')
+        print(f'DEBUG fallback validation passed: x={x} > title_x2={title_x2}',flush=True)
     else:
         # Score candidates by proximity to expected side
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
+        print(f'DEBUG using OCR candidates: side={side}, setup={setup}',flush=True)
 
         # If looking for right side, prefer rightmost candidate
         # If looking for left side, prefer leftmost candidate
         if side=='right':
             toggle=max(toggle_candidates,key=lambda row:row['bounds'][0])
+            print(f'DEBUG selected rightmost candidate',flush=True)
         else:
             toggle=min(toggle_candidates,key=lambda row:row['bounds'][0])
+            print(f'DEBUG selected leftmost candidate',flush=True)
 
         x=(toggle['bounds'][0]+toggle['bounds'][2])//2
         y=(toggle['bounds'][1]+toggle['bounds'][3])//2
+        print(f'DEBUG selected toggle: text="{toggle.get("text")}", x={x}, y={y}',flush=True)
     if setup:
         view_name=transition['initial_name']
         print('Layout setup: idempotently targeting '+view_name+' view on '+
@@ -2690,6 +2713,7 @@ def restaurants_ready_for_layout(obs,history,screenshot_context=False):
         and item['decision']['action']=='tap'
         for item in history
     )
+    print(f'DEBUG restaurants_ready_for_layout: navigated={navigated}, history_sources={[item.get("usage",{}).get("source") for item in history[-3:]]}',flush=True)
     if not navigated:
         return False
     # screenshot_context only enables hierarchy-free observation. It must not
