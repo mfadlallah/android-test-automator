@@ -2508,17 +2508,19 @@ def locate_layout_toggle_visual(
                 'vision_point':[x,y],'image_size':[width,height],
             },{'source':'layout_toggle_gate','transition':transition})
 
-    # Find heading text in content area (not status bar, not header, not search bar)
-    # Exclude: top 300px, search bar text, wide banners (>50% width)
-    # Search bars typically contain "search" and span wide
+    # Find heading text in content area (not status bar, not header, not search bar, not banners)
+    # Exclude: top 300px, search bar text, banner text, wide elements (>50% width)
+    # Banners contain offer/promo keywords; content headings don't
     max_heading_width = width * 0.5  # ~540px for 1080px screen
+    banner_keywords = {'offer', 'hour', 'discount', 'expires', 'deal', 'promo', '#'}
     titles=[row for row in obs.get('ocr',[])
             if (row.get('confidence',0)>=.7 and len(row.get('text',''))>2 and
                 row.get('bounds',[])[3]-row.get('bounds',[])[1]>=30 and
-                row.get('bounds',[])[1]>=300 and
+                row.get('bounds',[])[1]>=500 and
                 'search' not in row.get('text','').lower() and
+                not any(kw in row.get('text','').lower() for kw in banner_keywords) and
                 (row.get('bounds',[])[2]-row.get('bounds',[])[0])<=max_heading_width)]
-    print(f'DEBUG found {len(titles)} heading candidates (y>=300, width<50%, no search): {[row.get("text") for row in titles[:3]]}',flush=True)
+    print(f'DEBUG found {len(titles)} heading candidates (y>=500, no banners, width<50%): {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
         raise Blocked('No heading text found for toggle grounding.')
 
