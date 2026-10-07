@@ -2508,18 +2508,19 @@ def locate_layout_toggle_visual(
                 'vision_point':[x,y],'image_size':[width,height],
             },{'source':'layout_toggle_gate','transition':transition})
 
-    # Find heading text (prefer larger text, filter out status bar icons)
-    # Status bar content is typically very small and at top, so filter those out
+    # Find heading text in content area (not status bar, not header, not profile section)
+    # Exclude top 300px (status bar ~25px, app header ~50px, search bar ~100px, profile ~50px)
+    # Min height 30px to filter out small icons/symbols
     titles=[row for row in obs.get('ocr',[])
             if (row.get('confidence',0)>=.7 and len(row.get('text',''))>2 and
-                row.get('bounds',[])[3]-row.get('bounds',[])[1]>=30)]  # Height >= 30px
-    print(f'DEBUG found {len(titles)} heading candidates: {[row.get("text") for row in titles[:3]]}',flush=True)
+                row.get('bounds',[])[3]-row.get('bounds',[])[1]>=30 and
+                row.get('bounds',[])[1]>=300)]  # y >= 300px (below header area)
+    print(f'DEBUG found {len(titles)} heading candidates in content area (y>=300): {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
         raise Blocked('No heading text found for toggle grounding.')
 
-    # Use topmost heading that's not in the status bar area (not in top 100px)
-    valid_titles = [t for t in titles if t.get('bounds',[])[1] >= 100]
-    title = valid_titles[0] if valid_titles else min(titles,key=lambda row:row['bounds'][1])
+    # Use topmost heading in content area (should be the list title like "Restaurants")
+    title = min(titles, key=lambda row: row['bounds'][1])
     print(f'DEBUG selected heading: text="{title.get("text")}", bounds={title.get("bounds")}',flush=True)
     title_x1, title_y1, title_x2, title_y2 = title['bounds']
     y=(title_y1+title_y2)//2
