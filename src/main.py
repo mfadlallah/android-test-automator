@@ -2472,31 +2472,43 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
     if not artifact_folder or 'png' not in obs:
         return
     try:
-        from PIL import Image
         import io
-        png = obs['png']
-        img = Image.open(io.BytesIO(png))
-        width, height = img.size
+        pil_available = False
+        try:
+            from PIL import Image
+            pil_available = True
+        except ImportError:
+            pass
 
-        # Crop around the tap point: 120px square centered on tap
-        crop_size = 120
-        left = max(0, x - crop_size // 2)
-        top = max(0, y - crop_size // 2)
-        right = min(width, left + crop_size)
-        bottom = min(height, top + crop_size)
-
-        # Adjust if crop goes out of bounds
-        if right - left < crop_size:
-            left = max(0, right - crop_size)
-        if bottom - top < crop_size:
-            top = max(0, bottom - crop_size)
-
-        cropped = img.crop((left, top, right, bottom))
-
-        artifact_folder = Path(artifact_folder)
-        crop_path = artifact_folder / f'toggle-crop-{side}.png'
-        cropped.save(crop_path)
-        print(f'DEBUG saved toggle crop: {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+        if pil_available:
+            png = obs['png']
+            img = Image.open(io.BytesIO(png))
+            width, height = img.size
+            crop_size = 120
+            left = max(0, x - crop_size // 2)
+            top = max(0, y - crop_size // 2)
+            right = min(width, left + crop_size)
+            bottom = min(height, top + crop_size)
+            if right - left < crop_size:
+                left = max(0, right - crop_size)
+            if bottom - top < crop_size:
+                top = max(0, bottom - crop_size)
+            cropped = img.crop((left, top, right, bottom))
+            artifact_folder = Path(artifact_folder)
+            crop_path = artifact_folder / f'toggle-crop-{side}.png'
+            cropped.save(crop_path)
+            print(f'DEBUG saved toggle crop: {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+        else:
+            # Fallback: save metadata without PIL
+            artifact_folder = Path(artifact_folder)
+            metadata_path = artifact_folder / f'toggle-crop-{side}.json'
+            metadata_path.write_text(json.dumps({
+                'type': 'toggle_crop_evidence',
+                'side': side,
+                'tap_point': [x, y],
+                'note': 'PIL not available - coordinates in debug logs'
+            }), encoding='utf-8')
+            print(f'DEBUG saved toggle tap evidence: {metadata_path}',flush=True)
     except Exception as e:
         print(f'DEBUG failed to save toggle crop: {e}',flush=True)
 
