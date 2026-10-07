@@ -783,16 +783,23 @@ def assertion_crop_bounds(obs,step):
     if adapter_crop:
         # adapter_crop is already a tuple (x1, y1, x2, y2) from registry
         if isinstance(adapter_crop, (list, tuple)) and len(adapter_crop) == 4:
+            print(f'DEBUG assertion_crop_bounds: adapter returned bounds for "{target}": {adapter_crop}', flush=True)
             return list(adapter_crop)
         # Or it's a BoundingBox object
         elif hasattr(adapter_crop, 'x1'):
-            return [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
+            bounds = [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
+            print(f'DEBUG assertion_crop_bounds: adapter returned BoundingBox for "{target}": {bounds}', flush=True)
+            return bounds
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
+        print(f'DEBUG assertion_crop_bounds: trying semantic_target_bounds for "{target}"', flush=True)
         bounds = semantic_target_bounds(obs,step.get('target',''))
         if bounds:
+            print(f'DEBUG assertion_crop_bounds: semantic returned bounds for "{target}": {bounds}', flush=True)
             return bounds
+        else:
+            print(f'DEBUG assertion_crop_bounds: semantic returned None for "{target}"', flush=True)
     return None
 
     # Note: Keep old logic below as reference for edge cases
