@@ -506,7 +506,8 @@ sheet/container is absent while its destination screen is visible. For
 wait_changed compare BEFORE and CURRENT and wait if loading or unchanged.
 Return failed only for an observed product contradiction, wait for transient
 loading, and blocked when the assertion cannot be grounded. Evidence must name
-the observed UI fact. Return only JSON matching the schema.'''
+the observed UI fact and mention the target (e.g., "the first restaurant item").
+Return only JSON matching the schema.'''
 
 
 def assertion_evidence_error(step,result):
@@ -1184,6 +1185,10 @@ def assess_plan_assertion(
         if error is None:
             save_crop_metadata(0,deterministic)
             return deterministic
+        else:
+            print(f"DEBUG assertion validation failed: {error}",flush=True)
+            print(f"DEBUG step target: {step.get('target','')}",flush=True)
+            print(f"DEBUG model evidence: {deterministic}",flush=True)
 
     for label,item in observations:
         if item:
@@ -1243,6 +1248,9 @@ def assess_plan_assertion(
                             attempt+1,result,errors=validation_errors)
                         return result
                     last_error=evidence_error
+                    print(f"DEBUG assertion attempt {attempt+1} validation failed: {evidence_error}",flush=True)
+                    print(f"DEBUG result: {result}",flush=True)
+                    print(f"DEBUG target: {step.get('target','')}",flush=True)
             elif result is not None:
                 last_error='Invalid local assertion result.'
         validation_errors.append(last_error)
