@@ -3551,7 +3551,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--app-id',default='com.hungerstation.android.web.debug')
-    p.add_argument('--serial'); p.add_argument('--case',type=Path,default=ROOT/'case.txt')
+    p.add_argument('--serial'); p.add_argument('--case',type=Path,required=True,help='Path to test case file (e.g., cases/33271749-sort-restaurants-list.txt)')
     p.add_argument('--model',default=os.environ.get('OLLAMA_MODEL','qwen2.5vl:3b'))
     p.add_argument('--max-steps',type=int,default=25)
     p.add_argument('--attempts',type=int,default=3,
