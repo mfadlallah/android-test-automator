@@ -1091,21 +1091,54 @@ def assess_plan_assertion(
         artifact_folder=Path(artifact_folder)
         observation=int(obs.get('observation',0))
         step_id=str(step.get('id','step'))
+        capability=step.get('capability','')
+        target=step.get('target','')
         safe_step=(re.sub(r'[^A-Za-z0-9_-]+','-',step_id).strip('-')[:60]
                    or 'step')
-        prefix=(f'{observation:02d}-assertion-step-{safe_step}-crop')
+        prefix=(f'{observation:02d}-assertion-{capability}-{target[:20]}'.replace(' ','-'))
+        prefix=re.sub(r'[^A-Za-z0-9_-]+','-',prefix).strip('-')[:80]
         crop_path=artifact_folder/(prefix+'.png')
         crop_metadata_path=artifact_folder/(prefix+'.json')
-        crop_path.write_bytes(current_image)
+
+        # Save crop with optional visual border/highlight
+        try:
+            import io
+            from PIL import Image, ImageDraw
+            png = obs.get('png', b'')
+            if png and crop_bounds:
+                # Load original image and draw a red border around the crop region
+                orig_img = Image.open(io.BytesIO(png))
+                x1, y1, x2, y2 = crop_bounds
+
+                # Crop and save the region
+                cropped = orig_img.crop((x1, y1, x2, y2))
+                cropped.save(crop_path)
+
+                # Also save a version with border on full screenshot for context
+                bordered = orig_img.copy()
+                draw = ImageDraw.Draw(bordered)
+                draw.rectangle([x1, y1, x2, y2], outline='red', width=3)
+                bordered_path = artifact_folder/(prefix+'-with-border.png')
+                bordered.save(bordered_path)
+
+                print(f'DEBUG saved assertion crop: {crop_path.name}, target={target}, bounds={crop_bounds}',flush=True)
+            else:
+                crop_path.write_bytes(current_image)
+        except (ImportError, Exception) as e:
+            # Fallback: just save the raw crop image
+            crop_path.write_bytes(current_image)
+            print(f'DEBUG saved assertion crop (fallback): {crop_path.name}, bounds={crop_bounds}',flush=True)
+
         crop_metadata={
             'observation':observation,
             'step_id':step_id,
-            'capability':step.get('capability',''),
-            'target':step.get('target',''),
+            'capability':capability,
+            'target':target,
             'expected_value':step.get('value',''),
             'source_image':f'{observation:02d}.png',
             'crop_image':crop_path.name,
             'crop_bounds':crop_bounds,
+            'crop_with_border':prefix+'-with-border.png',
             'attempts':0,
             'retried':False,
             'final_status':'pending',
@@ -2475,8 +2508,8 @@ def parse_layout_transition(plan):
         raise Blocked(str(exc)) from None
 
 
-def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason='', target=''):
-    """Save a cropped screenshot of the tap area for visual evidence."""
+def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason='', target='', capability=''):
+    """Save a cropped screenshot of the tap area for visual evidence with context border."""
     if not artifact_folder or 'png' not in obs:
         return
     try:
@@ -2489,9 +2522,13 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
         right = left + crop_size
         bottom = top + crop_size
 
-        # Try PIL first (preferred)
+        # Generate descriptive filename
+        target_safe = re.sub(r'[^A-Za-z0-9_-]+', '-', str(target)[:30]).strip('-') or 'tap'
+        crop_name = f'{observation_index:02d}-tap-{capability}-{target_safe}'
+
+        # Try PIL first (preferred) - with optional border on full image
         try:
-            from PIL import Image
+            from PIL import Image, ImageDraw
             png = obs['png']
             img = Image.open(io.BytesIO(png))
             width, height = img.size
@@ -2501,10 +2538,21 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
                 left = max(0, right - crop_size)
             if bottom - top < crop_size:
                 top = max(0, bottom - crop_size)
+
+            # Save cropped region
             cropped = img.crop((left, top, right, bottom))
-            crop_path = artifact_folder / f'{observation_index:02d}-tap-evidence.png'
+            crop_path = artifact_folder / f'{crop_name}.png'
             cropped.save(crop_path)
-            print(f'DEBUG saved tap evidence (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+
+            # Save full screenshot with red border around tap area for context
+            bordered = img.copy()
+            draw = ImageDraw.Draw(bordered)
+            draw.rectangle([left, top, right, bottom], outline='red', width=4)
+            draw.ellipse([x-8, y-8, x+8, y+8], outline='yellow', width=2)  # Mark tap point
+            bordered_path = artifact_folder / f'{crop_name}-with-context.png'
+            bordered.save(bordered_path)
+
+            print(f'DEBUG saved tap evidence: {crop_path.name}, target={target}, tap_point=({x},{y}), bounds=({left},{top},{right},{bottom})',flush=True)
             return
         except ImportError:
             pass
@@ -2516,11 +2564,11 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
                 tmp_path = tmp.name
             crop_spec = f'{crop_size}x{crop_size}+{left}+{top}'
             result = subprocess.run(['convert', tmp_path, '-crop', crop_spec, '+repage',
-                                  str(artifact_folder / f'{observation_index:02d}-tap-evidence.png')],
+                                  str(artifact_folder / f'{crop_name}.png')],
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved tap evidence (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
+                print(f'DEBUG saved tap evidence (ImageMagick): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -2532,27 +2580,29 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
                 tmp_path = tmp.name
             result = subprocess.run(['ffmpeg', '-i', tmp_path, '-vf',
                                   f'crop={crop_size}:{crop_size}:{left}:{top}', '-y',
-                                  str(artifact_folder / f'{observation_index:02d}-tap-evidence.png')],
+                                  str(artifact_folder / f'{crop_name}.png')],
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved tap evidence (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
+                print(f'DEBUG saved tap evidence (ffmpeg): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
         # Last resort: save full screenshot with metadata
-        full_path = artifact_folder / f'{observation_index:02d}-tap-screenshot.png'
+        full_path = artifact_folder / f'{crop_name}-screenshot.png'
         full_path.write_bytes(obs['png'])
-        metadata_path = artifact_folder / f'{observation_index:02d}-tap-evidence.json'
+        metadata_path = artifact_folder / f'{crop_name}.json'
         metadata_path.write_text(json.dumps({
+            'observation_index': observation_index,
             'tap_point': [x, y],
             'crop_bounds': [left, top, crop_size, crop_size],
             'reason': reason,
             'target': target,
+            'capability': capability,
             'full_screenshot': full_path.name
-        }), encoding='utf-8')
-        print(f'DEBUG saved tap screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
+        }, ensure_ascii=False, indent=2), encoding='utf-8')
+        print(f'DEBUG saved tap evidence (metadata): {crop_name}.json, bounds=({left},{top},{right},{bottom})',flush=True)
     except Exception as e:
         print(f'DEBUG failed to save tap evidence: {e}',flush=True)
 
@@ -3344,9 +3394,11 @@ def run_sequential_plan(
             # Capture tap evidence after tap actions
             if action == 'tap' and 'vision_point' in decision:
                 tap_x, tap_y = decision['vision_point']
-                tap_target = step.get('target', '')
+                tap_target = step.get('target', '') or step.get('id', '')
                 tap_reason = decision.get('reason', '')
-                save_tap_evidence(obs, tap_x, tap_y, observation_index, folder, tap_reason, tap_target)
+                tap_capability = step.get('capability', '')
+                save_tap_evidence(obs, tap_x, tap_y, observation_index, folder,
+                                tap_reason, tap_target, tap_capability)
             if (capability!='recover_optional'
                     and usage.get('source') not in {
                         'in_app_message_gate','unexpected_modal_back_gate'}):
