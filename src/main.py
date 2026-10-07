@@ -2541,10 +2541,19 @@ def locate_layout_toggle_visual(
                 x1, y1, x2, y2 = node.get('bounds', [0, 0, 0, 0])
                 x = (x1 + x2) // 2
                 y = (y1 + y2) // 2
-                # Determine side (left or right) based on x position relative to screen center
-                side = 'left' if x < width // 2 else 'right'
-                hierarchy_toggles[side] = (x, y)
-                print(f'DEBUG found hierarchy toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
+
+                # Filter: toggle must be near heading (within ±50px vertical, and to the right)
+                # This excludes random RadioButtons elsewhere on screen
+                heading_y_range = abs(y - (title_y1 + title_y2) // 2)
+                is_near_heading = heading_y_range <= 100 and x > title_x2
+
+                if is_near_heading:
+                    # Determine side (left or right) based on x position relative to heading
+                    side = 'left' if x < title_x1 else 'right'
+                    hierarchy_toggles[side] = (x, y)
+                    print(f'DEBUG found heading-adjacent toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
+                else:
+                    print(f'DEBUG skipping toggle (not near heading): resource_id={rid}, x={x}, y={y}, heading_y_dist={heading_y_range}',flush=True)
 
         if len(hierarchy_toggles) == 2:
             print(f'DEBUG caching toggle positions from hierarchy: {hierarchy_toggles}',flush=True)
