@@ -2606,14 +2606,12 @@ def locate_layout_toggle_visual(
         # x-position: left button at ~20-30%, right button at ~70-90%
         x=round(width*(.25 if side=='left' else .85))
 
-        # y-position: toggles are below heading, in upper-middle area
-        # Use heading's bottom + offset, capped at bottom of first 1/3 of screen
-        toggle_y_min = title_y2 + 50  # At least 50px below heading
-        toggle_y_max = height // 3    # Bottom of first 1/3 of screen
-        y = max(toggle_y_min, min(toggle_y_max, (title_y2 + toggle_y_max) // 2))
+        # y-position: RadioGroup is vertically aligned with heading (same top/bottom)
+        # Use the middle of the heading's vertical range
+        y = (title_y1 + title_y2) // 2
 
         print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
-        print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y-range: {toggle_y_min}-{toggle_y_max}',flush=True)
+        print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y: {y} (aligned with heading)',flush=True)
 
         # Validate x is to the right of heading
         if not (x>title_x2):
