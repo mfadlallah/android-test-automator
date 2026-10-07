@@ -2473,42 +2473,76 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
         return
     try:
         import io
-        pil_available = False
+        import tempfile
+        artifact_folder = Path(artifact_folder)
+        crop_size = 120
+        left = max(0, x - crop_size // 2)
+        top = max(0, y - crop_size // 2)
+        right = left + crop_size
+        bottom = top + crop_size
+
+        # Try PIL first (preferred)
         try:
             from PIL import Image
-            pil_available = True
-        except ImportError:
-            pass
-
-        if pil_available:
             png = obs['png']
             img = Image.open(io.BytesIO(png))
             width, height = img.size
-            crop_size = 120
-            left = max(0, x - crop_size // 2)
-            top = max(0, y - crop_size // 2)
-            right = min(width, left + crop_size)
-            bottom = min(height, top + crop_size)
+            right = min(width, right)
+            bottom = min(height, bottom)
             if right - left < crop_size:
                 left = max(0, right - crop_size)
             if bottom - top < crop_size:
                 top = max(0, bottom - crop_size)
             cropped = img.crop((left, top, right, bottom))
-            artifact_folder = Path(artifact_folder)
             crop_path = artifact_folder / f'toggle-crop-{side}.png'
             cropped.save(crop_path)
-            print(f'DEBUG saved toggle crop: {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
-        else:
-            # Fallback: save metadata without PIL
-            artifact_folder = Path(artifact_folder)
-            metadata_path = artifact_folder / f'toggle-crop-{side}.json'
-            metadata_path.write_text(json.dumps({
-                'type': 'toggle_crop_evidence',
-                'side': side,
-                'tap_point': [x, y],
-                'note': 'PIL not available - coordinates in debug logs'
-            }), encoding='utf-8')
-            print(f'DEBUG saved toggle tap evidence: {metadata_path}',flush=True)
+            print(f'DEBUG saved toggle crop (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+            return
+        except ImportError:
+            pass
+
+        # Fallback: use ImageMagick convert command
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            crop_spec = f'{crop_size}x{crop_size}+{left}+{top}'
+            result = subprocess.run(['convert', tmp_path, '-crop', crop_spec, '+repage',
+                                  str(artifact_folder / f'toggle-crop-{side}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved toggle crop (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: use ffmpeg
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            result = subprocess.run(['ffmpeg', '-i', tmp_path, '-vf',
+                                  f'crop={crop_size}:{crop_size}:{left}:{top}', '-y',
+                                  str(artifact_folder / f'toggle-crop-{side}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved toggle crop (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Last resort: save full screenshot with metadata
+        full_path = artifact_folder / f'toggle-screenshot-{side}.png'
+        full_path.write_bytes(obs['png'])
+        metadata_path = artifact_folder / f'toggle-crop-{side}.json'
+        metadata_path.write_text(json.dumps({
+            'crop_bounds': [left, top, crop_size, crop_size],
+            'tap_point': [x, y],
+            'full_screenshot': full_path.name
+        }), encoding='utf-8')
+        print(f'DEBUG saved toggle screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
     except Exception as e:
         print(f'DEBUG failed to save toggle crop: {e}',flush=True)
 
