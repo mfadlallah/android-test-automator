@@ -441,17 +441,90 @@ class GenericAdapter(DomainAdapter):
         observation: Dict[str, Any],
         step: Dict[str, Any]
     ) -> Optional[BoundingBox]:
-        """Generic grounding for assertion targets."""
+        """Generic grounding for assertion targets with smart fallbacks."""
         # Try to ground the target like any other semantic target
         bounds = self.ground_target(target, observation)
 
         if bounds:
             return bounds
 
-        # If target not found, return full screen (will show more context)
-        png = observation.get('png', b'')
-        if len(png) >= 24:
-            width, height = struct.unpack('>II', png[16:24])
-            return BoundingBox(0, 0, width, height)
+        # Fallback: Try semantic target bounds for pills, sheets, buttons, etc.
+        # This helps with UI elements that might not have exact OCR/hierarchy matches
+        target_lower = target.lower()
+        if any(word in target_lower for word in ('pill', 'sheet', 'button', 'option', 'label')):
+            # Use adaptive semantic matching from main.py logic
+            semantic_bounds = self._semantic_match_bounds(target, observation)
+            if semantic_bounds:
+                return BoundingBox(*semantic_bounds)
 
+        # If still not found, return None instead of full-screen
+        # Let caller decide whether to use full-screen fallback
         return None
+
+    def _semantic_match_bounds(
+        self,
+        target: str,
+        observation: Dict[str, Any]
+    ) -> Optional[List[int]]:
+        """Find bounds using semantic keyword matching."""
+        import re
+
+        png = observation.get('png', b'')
+        if len(png) < 24:
+            return None
+
+        width, height = struct.unpack('>II', png[16:24])
+
+        # Extract keywords from target
+        target_lower = target.lower()
+        target_tokens = set(re.findall(r'\w+', target_lower, re.UNICODE))
+
+        # Search OCR for matching text
+        best_match = None
+        for row in observation.get('ocr', []):
+            ocr_text = row.get('text', '').lower()
+            ocr_tokens = set(re.findall(r'\w+', ocr_text, re.UNICODE))
+
+            # Check if tokens match (flexible matching for "Filters pill" → "Filters")
+            if target_tokens and (ocr_tokens >= target_tokens or target_tokens <= ocr_tokens):
+                bounds = row.get('bounds', [])
+                if len(bounds) == 4:
+                    best_match = bounds
+                    break  # Take first good match
+
+        # Search hierarchy for matching text
+        if not best_match:
+            for node in observation.get('nodes', []):
+                if not node.get('enabled'):
+                    continue
+                node_text = (node.get('text', '') or '').lower()
+                node_tokens = set(re.findall(r'\w+', node_text, re.UNICODE))
+
+                if target_tokens and (node_tokens >= target_tokens or target_tokens <= node_tokens):
+                    bounds = node.get('bounds', [])
+                    if len(bounds) == 4:
+                        best_match = bounds
+                        break
+
+        if not best_match:
+            return None
+
+        # Return with adaptive padding for pills/buttons
+        x1, y1, x2, y2 = best_match
+        item_width = x2 - x1
+        item_height = y2 - y1
+
+        # Tight padding for small pills
+        if item_width < width * 0.2 and item_height < height * 0.1:
+            pad_h = max(2, round(width * 0.01))
+            pad_v = max(2, round(height * 0.01))
+        else:
+            pad_h = round(width * 0.03)
+            pad_v = round(height * 0.02)
+
+        return [
+            max(0, x1 - pad_h),
+            max(0, y1 - pad_v),
+            min(width, x2 + pad_h),
+            min(height, y2 + pad_v)
+        ]

@@ -776,6 +776,13 @@ def assertion_crop_bounds(obs,step):
     import struct
 
     target=' '.join(str(step.get('target','')).split()).casefold()
+    png = obs.get('png', b'')
+    is_full_screen = False
+    if len(png) >= 24:
+        width, height = struct.unpack('>II', png[16:24])
+        is_full_screen_bounds = lambda b: b == (0, 0, width, height) or b == [0, 0, width, height]
+    else:
+        is_full_screen_bounds = lambda b: False
 
     # Try adapter-based cropping for any target
     registry = get_adapter_registry()
@@ -783,13 +790,20 @@ def assertion_crop_bounds(obs,step):
     if adapter_crop:
         # adapter_crop is already a tuple (x1, y1, x2, y2) from registry
         if isinstance(adapter_crop, (list, tuple)) and len(adapter_crop) == 4:
-            print(f'DEBUG assertion_crop_bounds: adapter returned bounds for "{target}": {adapter_crop}', flush=True)
-            return list(adapter_crop)
+            # Skip full-screen results and use semantic fallback instead
+            if not is_full_screen_bounds(adapter_crop):
+                print(f'DEBUG assertion_crop_bounds: adapter returned tight bounds for "{target}": {adapter_crop}', flush=True)
+                return list(adapter_crop)
+            else:
+                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen, trying semantic', flush=True)
         # Or it's a BoundingBox object
         elif hasattr(adapter_crop, 'x1'):
             bounds = [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
-            print(f'DEBUG assertion_crop_bounds: adapter returned BoundingBox for "{target}": {bounds}', flush=True)
-            return bounds
+            if not is_full_screen_bounds(bounds):
+                print(f'DEBUG assertion_crop_bounds: adapter returned tight BoundingBox for "{target}": {bounds}', flush=True)
+                return bounds
+            else:
+                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen BoundingBox, trying semantic', flush=True)
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
