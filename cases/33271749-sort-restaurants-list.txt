@@ -9,17 +9,17 @@ Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
 3. Verify the Filters pill is visible.
-4. Verify that the first restaurant item contains the exact label "Ad".
-5. Tap the Filters pill.
-6. Verify that the Filters sheet is visible.
-7. Tap the "Ratings (High To Low)" option under Sorting options.
-8. Verify that "Ratings (High To Low)" is selected.
-9. Tap the Apply button.
-10. Verify that the Filters pill contains the indicator label "1".
-11. Verify that the Filters sheet is hidden.
-12. Wait until the restaurant items change and finish loading.
-13. Verify that the refreshed restaurant items are visible.
-14. Verify that the first restaurant item does not contain the exact label "Ad".
+4. Verify that the first restaurant item contains the exact label "Ad" before filtering.
+5. Tap the Filters pill to open the filters sheet.
+6. Verify that the Filters sheet is now visible.
+7. Tap the "Ratings (High To Low)" option under Sorting options to select it.
+8. Verify that "Ratings (High To Low)" is now selected.
+9. Tap the Apply button to apply the filters.
+10. Verify that the Filters pill now contains the indicator label "1".
+11. Verify that the Filters sheet is now hidden.
+12. Wait until the restaurant items change and finish loading after filtering.
+13. Verify that the refreshed restaurant items are now visible.
+14. Verify that the first restaurant item does not contain the exact label "Ad" after filtering.
 15. Scroll down within the vertical restaurant list.
 
 Expected result:

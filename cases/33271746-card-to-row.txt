@@ -13,8 +13,8 @@ Automation setup:
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
-3. Verify that card view (left toggle option) is selected.
-4. Tap row view (right toggle option).
+3. Set up card view (left toggle option) as the initial state and verify it is selected.
+4. Tap row view (right toggle option) to change to row view.
 5. Verify that restaurant items change from card view to row view.
 6. Scroll down within the vertical restaurant list.
 

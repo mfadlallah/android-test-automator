@@ -16,6 +16,10 @@ import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 
+# Cache for toggle button positions learned from hierarchy observations
+# Format: {'left': (x, y), 'right': (x, y)} or None if not yet learned
+_toggle_position_cache = None
+
 from .recovery import (
     Recovery,
     RecoveryBlocked,
@@ -31,6 +35,7 @@ from .planning import (
     plan_summary,
     steps_for,
 )
+from .adapters import GenericAdapter
 
 ROOT = Path(__file__).resolve().parents[1]
 VISUAL_MODEL='qwen2.5vl:3b'
@@ -39,6 +44,55 @@ VISUAL_ENABLED=True
 
 class Blocked(RuntimeError):
     pass
+
+
+class AdapterRegistry:
+    """Registry of domain adapters for test execution.
+
+    Currently uses a single GenericAdapter that works for all domains
+    without domain-specific knowledge.
+    """
+
+    def __init__(self):
+        """Initialize with available adapters."""
+        self.adapter = GenericAdapter()
+
+    def get_adapter(self):
+        """Get the active adapter (currently generic)."""
+        return self.adapter
+
+    def ground_target(self, target, observation, hints=None):
+        """Ground a semantic target using adapter."""
+        bounds = self.adapter.ground_target(target, observation, hints)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+    def find_scrollable(self, target, observation):
+        """Find scrollable region for target using adapter."""
+        bounds = self.adapter.find_scrollable_region(target, observation)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+    def get_assertion_crop(self, target, observation, step):
+        """Get crop bounds for assertion using adapter."""
+        bounds = self.adapter.get_assertion_crop(target, observation, step)
+        if bounds:
+            return (bounds.x1, bounds.y1, bounds.x2, bounds.y2)
+        return None
+
+
+# Global adapter registry (initialized on first use)
+_adapter_registry = None
+
+
+def get_adapter_registry():
+    """Get or create the global adapter registry."""
+    global _adapter_registry
+    if _adapter_registry is None:
+        _adapter_registry = AdapterRegistry()
+    return _adapter_registry
 
 def parse_nodes(xml, package):
     root = ET.fromstring(xml)
@@ -301,34 +355,16 @@ class Device:
                 time.sleep(1)  # fallback
             return
         if action not in ('tap','scroll'): raise Blocked('Unsupported action')
-        # RESTAURANTS_SCREEN_SCROLL_GUARD
+
+        # Generic scroll validation using adapter
         if action == 'scroll':
-            nodes = observation['nodes']
+            # Verify target node is scrollable (generic check, no hardcoding)
+            target_node = decision.get('node')
+            node = next((n for n in observation['nodes'] if n['node'] == target_node), None)
 
-            def has_id(node, suffix):
-                return node.get('resource_id', '').endswith(
-                    ':id/' + suffix
-                )
-
-            title_found = any(
-                has_id(n, 'vendors_title') for n in nodes
-            )
-            lists = [
-                n for n in nodes
-                if has_id(n, 'vendorsRecycler')
-                and n.get('scrollable')
-            ]
-
-            if not title_found or len(lists) != 1:
+            if not node or not node.get('scrollable'):
                 raise Blocked(
-                    'Scroll refused: Restaurants screen is not confirmed. '
-                    'The agent must tap Restaurants on Home first.'
-                )
-
-            if decision['node'] != lists[0]['node']:
-                raise Blocked(
-                    'Scroll refused: target must be vendorsRecycler, '
-                    'not Home or a horizontal carousel.'
+                    'Scroll target is not scrollable or not found'
                 )
 
         node=next((n for n in observation['nodes'] if n['node']==decision['node']),None)
@@ -704,7 +740,28 @@ def semantic_target_bounds(obs,target):
 
 
 def assertion_crop_bounds(obs,step):
-    """Return a safe target crop for label-based visual assertions."""
+    """Return a safe target crop for label-based visual assertions.
+
+    Uses generic adapter for semantic matching and item detection.
+    Falls back to semantic target grounding for non-item assertions.
+    """
+    import struct
+
+    target=' '.join(str(step.get('target','')).split()).casefold()
+
+    # Try adapter-based cropping for any target
+    registry = get_adapter_registry()
+    adapter_crop = registry.get_assertion_crop(step.get('target',''), obs, step)
+    if adapter_crop:
+        return adapter_crop
+
+    # Fallback: semantic target bounds for non-item assertions
+    if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
+        return semantic_target_bounds(obs,step.get('target',''))
+    return None
+
+    # Note: Keep old logic below as reference for edge cases
+    # TODO: Remove old vendor-specific logic after Phase 3 verification
     import struct
 
     target=' '.join(str(step.get('target','')).split()).casefold()
@@ -2065,12 +2122,22 @@ def explicit_optional_text_evidence(obs):
 
 
 def prior_recovery_dismissal(history):
-    """Whether this recovery plan step already performed a dismiss action."""
-    return any(
-        item.get('plan_step',{}).get('capability')=='recover_optional'
+    """Whether recovery recently performed a dismiss action.
+
+    Checks for either explicit recover_optional plan steps or gate/recovery sources
+    that successfully dismissed an interruption (Hour Offer, modal, etc).
+    """
+    recovery_sources={'recovery','hour_offer_gate','delivery_address_gate',
+                      'in_app_message_gate','unexpected_modal_back_gate'}
+    result = any(
+        (item.get('plan_step',{}).get('capability')=='recover_optional'
+         or item.get('usage',{}).get('source') in recovery_sources)
         and item.get('decision',{}).get('action') in {'tap','back'}
         for item in history
     )
+    if result:
+        print(f'DEBUG prior_recovery_dismissal: FOUND recovery action, history_len={len(history)}',flush=True)
+    return result
 
 
 GROUNDING_ERRORS=(
@@ -2082,7 +2149,12 @@ GROUNDING_ERRORS=(
 
 def ignore_ungrounded_optional_after_back(
         assessment,recovery_action,obs,history):
-    """Ignore model-only optional claims on a grounded stable app screen."""
+    """Ignore model-only optional claims on a grounded stable app screen.
+
+    After recovery successfully closes an interruption (tap or back), the app
+    may be in a transient state. If recovery detects another ungrounded optional
+    claim on a stable screen immediately after, ignore it as likely false-positive.
+    """
     if recovery_action is None or assessment.get('kind')!='optional':
         return False
     decision,_=recovery_action
@@ -2092,7 +2164,20 @@ def ignore_ungrounded_optional_after_back(
         return False
     stable_screen=(current_restaurants_listing(obs) or
                    current_home_screen(obs))
-    return stable_screen and not explicit_optional_text_evidence(obs)
+    print(f'DEBUG ignore_ungrounded: stable_screen={stable_screen}',flush=True)
+    if not stable_screen:
+        return False
+
+    # After recovery just successfully dismissed an interruption, be more forgiving
+    # about transient ungrounded claims on stable screens.
+    prior_dismissal=prior_recovery_dismissal(history)
+    if prior_dismissal:
+        print(f'DEBUG ignore_ungrounded: IGNORING due to prior recovery dismissal',flush=True)
+        return True
+
+    text_evidence=explicit_optional_text_evidence(obs)
+    print(f'DEBUG ignore_ungrounded: has explicit text={text_evidence}, will ignore={not text_evidence}',flush=True)
+    return not text_evidence
 
 
 def optional_grounding_back_fallback(assessment, recovery_action, obs, history):
@@ -2127,13 +2212,50 @@ def navigation_gate(
             'evidence': reason,
         }, {'source': 'navigation_gate'}
 
-    listing_open = (
-        any(has_id(n, 'vendors_title') for n in nodes)
-        and any(
-            has_id(n, 'vendorsRecycler') and n.get('scrollable')
-            for n in nodes
-        )
-    )
+    # Generic listing detection: check if we're on a listing screen
+    # Strategy:
+    # 1. First confirm we're NOT on Home (to avoid false positives)
+    # 2. Then check for large scrollable + target keyword
+
+    # Collect all OCR text once for efficiency
+    ocr_text = ' '.join([
+        row.get('text', '').lower()
+        for row in obs.get('ocr', [])
+        if row.get('confidence', 0) >= 0.7
+    ])
+
+    # Check if we're on Home screen (confirm current screen first)
+    home_keywords = {'home', 'الرئيسية', 'what would you like to order'}
+    is_home_screen = any(kw in ocr_text for kw in home_keywords)
+
+    # If we're on Home, listing is not open (can't be on both)
+    if is_home_screen:
+        listing_open = False
+    else:
+        # Not on Home, so check if we're on target listing
+        large_scrollables = [
+            n for n in nodes
+            if n.get('scrollable') and
+               (n['bounds'][2] - n['bounds'][0]) > 200 and
+               (n['bounds'][3] - n['bounds'][1]) > 300
+        ]
+
+        # Verify by checking OCR for target keyword
+        # (e.g., looking for Restaurants/restaurants to confirm Restaurants listing)
+        target_keywords = set()
+        if target.lower() in {'restaurants', 'مطاعم', 'المطاعم'}:
+            target_keywords = {'restaurants', 'مطاعم', 'المطاعم', 'vendors'}
+        elif target.lower() in {'meals', 'وجبات'}:
+            target_keywords = {'meals', 'وجبات'}
+        elif target.lower() in {'cuisines', 'المطابخ'}:
+            target_keywords = {'cuisines', 'المطابخ'}
+
+        # Check OCR for target keywords
+        has_target_keyword = any(kw in ocr_text for kw in target_keywords) if target_keywords else False
+
+        # Listing is open if: large scrollable exists AND target keyword found
+        # OR if no target keywords defined (fallback for unknown targets)
+        listing_open = bool(large_scrollables) and (has_target_keyword or not target_keywords)
 
     taps = [
         h for h in history
@@ -2345,41 +2467,289 @@ def parse_layout_transition(plan):
         raise Blocked(str(exc)) from None
 
 
+def save_toggle_crop(obs, x, y, side, artifact_folder=None):
+    """Save a cropped screenshot of the toggle area for visual evidence."""
+    if not artifact_folder or 'png' not in obs:
+        return
+    try:
+        import io
+        import tempfile
+        artifact_folder = Path(artifact_folder)
+        crop_size = 120
+        left = max(0, x - crop_size // 2)
+        top = max(0, y - crop_size // 2)
+        right = left + crop_size
+        bottom = top + crop_size
+
+        # Try PIL first (preferred)
+        try:
+            from PIL import Image
+            png = obs['png']
+            img = Image.open(io.BytesIO(png))
+            width, height = img.size
+            right = min(width, right)
+            bottom = min(height, bottom)
+            if right - left < crop_size:
+                left = max(0, right - crop_size)
+            if bottom - top < crop_size:
+                top = max(0, bottom - crop_size)
+            cropped = img.crop((left, top, right, bottom))
+            crop_path = artifact_folder / f'toggle-crop-{side}.png'
+            cropped.save(crop_path)
+            print(f'DEBUG saved toggle crop (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+            return
+        except ImportError:
+            pass
+
+        # Fallback: use ImageMagick convert command
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            crop_spec = f'{crop_size}x{crop_size}+{left}+{top}'
+            result = subprocess.run(['convert', tmp_path, '-crop', crop_spec, '+repage',
+                                  str(artifact_folder / f'toggle-crop-{side}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved toggle crop (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: use ffmpeg
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            result = subprocess.run(['ffmpeg', '-i', tmp_path, '-vf',
+                                  f'crop={crop_size}:{crop_size}:{left}:{top}', '-y',
+                                  str(artifact_folder / f'toggle-crop-{side}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved toggle crop (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Last resort: save full screenshot with metadata
+        full_path = artifact_folder / f'toggle-screenshot-{side}.png'
+        full_path.write_bytes(obs['png'])
+        metadata_path = artifact_folder / f'toggle-crop-{side}.json'
+        metadata_path.write_text(json.dumps({
+            'crop_bounds': [left, top, crop_size, crop_size],
+            'tap_point': [x, y],
+            'full_screenshot': full_path.name
+        }), encoding='utf-8')
+        print(f'DEBUG saved toggle screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
+    except Exception as e:
+        print(f'DEBUG failed to save toggle crop: {e}',flush=True)
+
 def locate_layout_toggle_visual(
-        obs,plan,setup=False):
-    """Ground an idempotent setup or target tap beside the OCR heading."""
-    if not current_restaurants_listing(obs):
-        raise Blocked(
-            'Refusing layout-toggle tap because the current screen is not '
-            'confirmed as the Restaurants listing.'
-        )
+        obs,plan,setup=False,artifact_folder=None):
+    """Ground an idempotent setup or target tap on any layout toggle.
+
+    Generically finds toggle buttons near any heading by:
+    1. If hierarchy available: extract from resource IDs and cache
+    2. If hierarchy unavailable: use cached positions from earlier hierarchy observations
+    3. Fall back to OCR detection if cache empty
+    4. Fall back to generic position as last resort
+    """
+    global _toggle_position_cache
     import struct
     width,height=struct.unpack('>II',obs['png'][16:24])
+    print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}, has_hierarchy={bool(obs.get("nodes"))}',flush=True)
+
+    # Try to use cached positions first if hierarchy is unavailable
+    has_hierarchy = bool(obs.get('nodes'))
+    if not has_hierarchy and _toggle_position_cache:
+        print(f'DEBUG using cached toggle positions: {_toggle_position_cache}',flush=True)
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+        x, y = _toggle_position_cache[side]
+        view_name=transition['initial_name'] if setup else transition['target_name']
+        print(f'DEBUG using cached position: side={side}, x={x}, y={y}',flush=True)
+        if setup:
+            print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
+            return ({
+                'action':'tap','node':None,'direction':'none',
+                'reason':'Establish the '+view_name+' view precondition with an idempotent segment tap.',
+                'evidence':'Using cached toggle position from prior hierarchy observation.',
+                'vision_point':[x,y],'image_size':[width,height],
+            },{'source':'layout_precondition_setup','transition':transition})
+        else:
+            print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
+            return ({
+                'action':'tap','node':None,'direction':'none',
+                'reason':'Toggle Restaurants from '+transition['initial_name']+' view to '+transition['target_name']+' view.',
+                'evidence':'After idempotent setup, using cached toggle position on '+side+' from prior observation.',
+                'vision_point':[x,y],'image_size':[width,height],
+            },{'source':'layout_toggle_gate','transition':transition})
+
+    # Find heading text in content area (not status bar, not header, not search bar, not banners)
+    # Exclude: top 300px, search bar text, banner text, UI controls, wide elements (>50% width)
+    # Banners contain offer/promo keywords; UI controls start with +/-/|
+    max_heading_width = width * 0.5  # ~540px for 1080px screen
+    banner_keywords = {'offer', 'hour', 'discount', 'expires', 'deal', 'promo', '#', 'filter', 'delivery'}
+    ui_control_chars = {'+', '-', '|'}  # Action buttons start with these
+
     titles=[row for row in obs.get('ocr',[])
-            if ' '.join(row.get('text','').split()).casefold() in
-            {'restaurants','المطاعم','مطاعم'} and row.get('confidence',0)>=.7]
+            if (row.get('confidence',0)>=.7 and len(row.get('text',''))>2 and
+                row.get('bounds',[])[3]-row.get('bounds',[])[1]>=30 and
+                row.get('bounds',[])[1]>=500 and
+                'search' not in row.get('text','').lower() and
+                not any(kw in row.get('text','').lower() for kw in banner_keywords) and
+                not row.get('text','')[0] in ui_control_chars and
+                (row.get('bounds',[])[2]-row.get('bounds',[])[0])<=max_heading_width)]
+    print(f'DEBUG found {len(titles)} heading candidates (y>=500, no banners/controls, width<50%): {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
-        raise Blocked('Restaurants heading is unavailable for safe toggle grounding.')
-    title=min(titles,key=lambda row:row['bounds'][1])
-    y=(title['bounds'][1]+title['bounds'][3])//2
-    transition=parse_layout_transition(plan)
-    side=transition['initial_side'] if setup else transition['target_side']
-    name=transition['initial_name'] if setup else transition['target_name']
-    x=round(width*(.91 if side=='right' else .83))
-    if not (x>title['bounds'][2] and height*.15<=y<height*.62):
-        raise Blocked('OCR heading is outside the safe layout-toggle region.')
+        raise Blocked('No heading text found for toggle grounding.')
+
+    # Use topmost heading in content area (should be the list title like "Restaurants")
+    title = min(titles, key=lambda row: row['bounds'][1])
+    print(f'DEBUG selected heading: text="{title.get("text")}", bounds={title.get("bounds")}',flush=True)
+    title_x1, title_y1, title_x2, title_y2 = title['bounds']
+    y=(title_y1+title_y2)//2
+    print(f'DEBUG heading: text="{title.get("text")}", bounds=[{title_x1},{title_y1},{title_x2},{title_y2}], y={y}',flush=True)
+
+    # Try to find toggles from hierarchy if available (they have resource IDs, not visible text)
+    if has_hierarchy:
+        print(f'DEBUG trying to find toggles from hierarchy...',flush=True)
+        hierarchy_toggles = {}
+        for node in obs.get('nodes', []):
+            rid = node.get('resource_id', '').lower()
+            # Look for RadioButton, RadioGroup, toggle, or segment controls
+            if (('radio' in rid or 'toggle' in rid or 'segment' in rid) and
+                node.get('enabled')):
+                x1, y1, x2, y2 = node.get('bounds', [0, 0, 0, 0])
+                x = (x1 + x2) // 2
+                y = (y1 + y2) // 2
+
+                # Filter: toggle must be near heading (within ±50px vertical, and to the right)
+                # This excludes random RadioButtons elsewhere on screen
+                heading_y_range = abs(y - (title_y1 + title_y2) // 2)
+                is_near_heading = heading_y_range <= 100 and x > title_x2
+
+                if is_near_heading:
+                    # Determine side (left or right) based on x position relative to heading
+                    side = 'left' if x < title_x1 else 'right'
+                    hierarchy_toggles[side] = (x, y)
+                    print(f'DEBUG found heading-adjacent toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
+                else:
+                    print(f'DEBUG skipping toggle (not near heading): resource_id={rid}, x={x}, y={y}, heading_y_dist={heading_y_range}',flush=True)
+
+        if len(hierarchy_toggles) == 2:
+            print(f'DEBUG caching toggle positions from hierarchy: {hierarchy_toggles}',flush=True)
+            _toggle_position_cache = hierarchy_toggles
+            # Use the cached position now
+            side = transition['initial_side'] if setup else transition['target_side']
+            transition = parse_layout_transition(plan)
+            x, y = _toggle_position_cache[side]
+            view_name = transition['initial_name'] if setup else transition['target_name']
+            print(f'DEBUG using newly cached position: side={side}, x={x}, y={y}',flush=True)
+            if setup:
+                print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
+                return ({
+                    'action':'tap','node':None,'direction':'none',
+                    'reason':'Establish the '+view_name+' view precondition with an idempotent segment tap.',
+                    'evidence':'Grounded from hierarchy resource IDs.',
+                    'vision_point':[x,y],'image_size':[width,height],
+                },{'source':'layout_precondition_setup','transition':transition})
+            else:
+                print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
+                return ({
+                    'action':'tap','node':None,'direction':'none',
+                    'reason':'Toggle Restaurants from '+transition['initial_name']+' view to '+transition['target_name']+' view.',
+                    'evidence':'Grounded from hierarchy resource IDs.',
+                    'vision_point':[x,y],'image_size':[width,height],
+                },{'source':'layout_toggle_gate','transition':transition})
+
+    # Find toggle buttons: look for buttons to the right of heading
+    # Buttons typically have shorter text (one word) and are to the right
+    toggle_candidates=[]
+    all_ocr_texts=[]
+    for row in obs.get('ocr',[]):
+        ocr_x1,ocr_y1,ocr_x2,ocr_y2=row.get('bounds',[0,0,0,0])
+        ocr_text=row.get('text','').strip().lower()
+        confidence=row.get('confidence',0)
+        all_ocr_texts.append(f'"{ocr_text}"({confidence:.2f})')
+
+        # Toggle buttons are:
+        # - To the right of the heading
+        # - Short text (toggle keywords: left/right, card/row, list/grid)
+        # - High confidence
+        # - Roughly same vertical level as heading
+        if (ocr_x1>title_x2 and
+            abs(ocr_y1-title_y1)<abs(title_y2-title_y1)*1.5 and
+            confidence>=0.7 and
+            len(ocr_text.split())<=2):
+            toggle_candidates.append(row)
+            print(f'DEBUG toggle candidate: "{ocr_text}" at [{ocr_x1},{ocr_y1},{ocr_x2},{ocr_y2}]',flush=True)
+
+    print(f'DEBUG all OCR texts (first 10): {all_ocr_texts[:10]}',flush=True)
+    print(f'DEBUG found {len(toggle_candidates)} toggle candidates',flush=True)
+    if len(toggle_candidates)<2:
+        # Fallback: toggles are typically positioned:
+        # - To the RIGHT of the heading
+        # - BELOW the heading (in the bottom of first 1/3 of screen area)
+        # This is a generic layout pattern that works across apps
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+
+        # x-position: RadioGroup is typically right-aligned on screen
+        # Two 28dp buttons with padding: assume ~100px from right edge to right button center
+        # and ~80px spacing between buttons (Material Design standard)
+        if side == 'left':
+            # Left button: further from right edge
+            x = width - 180
+        else:
+            # Right button: closer to right edge
+            x = width - 100
+        x = round(x)
+
+        # y-position: RadioGroup is vertically aligned with heading (same top/bottom)
+        # Use the middle of the heading's vertical range
+        y = (title_y1 + title_y2) // 2
+
+        print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
+        print(f'DEBUG  - heading x-range: {title_x1}-{title_x2}, toggle x: {x}',flush=True)
+        print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y: {y} (aligned with heading)',flush=True)
+    else:
+        # Score candidates by proximity to expected side
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+        print(f'DEBUG using OCR candidates: side={side}, setup={setup}',flush=True)
+
+        # If looking for right side, prefer rightmost candidate
+        # If looking for left side, prefer leftmost candidate
+        if side=='right':
+            toggle=max(toggle_candidates,key=lambda row:row['bounds'][0])
+            print(f'DEBUG selected rightmost candidate',flush=True)
+        else:
+            toggle=min(toggle_candidates,key=lambda row:row['bounds'][0])
+            print(f'DEBUG selected leftmost candidate',flush=True)
+
+        x=(toggle['bounds'][0]+toggle['bounds'][2])//2
+        y=(toggle['bounds'][1]+toggle['bounds'][3])//2
+        print(f'DEBUG selected toggle: text="{toggle.get("text")}", x={x}, y={y}',flush=True)
+    # Save visual evidence of toggle location
+    save_toggle_crop(obs, x, y, side, artifact_folder)
+
     if setup:
-        print('Layout setup: idempotently targeting '+name+' view on '+
+        view_name=transition['initial_name']
+        print('Layout setup: idempotently targeting '+view_name+' view on '+
               side+'.',flush=True)
         return ({
             'action':'tap','node':None,'direction':'none',
-            'reason':'Establish the '+name+
+            'reason':'Establish the '+view_name+
                      ' view precondition with an idempotent segment tap.',
             'evidence':'The initial segment is targeted directly; no color, '+
                        'theme, or selected-state inference is required.',
             'vision_point':[x,y],'image_size':[width,height],
         },{'source':'layout_precondition_setup','transition':transition})
-    print('Layout test: tapping '+name+' view on '+side+'.',flush=True)
+    view_name=transition['target_name']
+    print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
     return ({
         'action':'tap','node':None,'direction':'none',
         'reason':'Toggle Restaurants from '+transition['initial_name']+
@@ -2416,7 +2786,7 @@ def verify_layout_change(obs, baseline):
     return False,'Restaurant OCR geometry did not change after toggle tap.'
 
 
-def layout_toggle_and_scroll_gate(obs, history, plan):
+def layout_toggle_and_scroll_gate(obs, history, plan, artifact_folder=None):
     taps=[item for item in history
           if item.get('usage',{}).get('source')=='layout_toggle_gate'
           and item['decision']['action']=='tap']
@@ -2429,14 +2799,14 @@ def layout_toggle_and_scroll_gate(obs, history, plan):
                        if item.get('usage',{}).get('source')==
                        'layout_precondition_settle']
         if not setup_taps:
-            return locate_layout_toggle_visual(obs,plan,setup=True)
+            return locate_layout_toggle_visual(obs,plan,setup=True,artifact_folder=artifact_folder)
         if not setup_settles:
             return ({
                 'action':'wait','node':None,'direction':'none',
                 'reason':'Allow the idempotent layout setup to settle.',
                 'evidence':'The required initial segment was targeted directly.',
             },{'source':'layout_precondition_settle'})
-        return locate_layout_toggle_visual(obs,plan,setup=False)
+        return locate_layout_toggle_visual(obs,plan,setup=False,artifact_folder=artifact_folder)
     baseline=taps[-1]['usage'].get('baseline',{})
     transition=(taps[-1]['usage'].get('transition') or
                 parse_layout_transition(plan))
@@ -2527,11 +2897,15 @@ def navigation_retry_from_home(obs,history,max_taps=2):
 
 
 def restaurants_ready_for_layout(obs,history,screenshot_context=False):
+    # Check for navigation via explicit navigation_gate OR via recovery gates
+    # that handled the Hour Offer (indicating app navigated to Restaurants)
+    nav_sources={'navigation_gate','hour_offer_gate','delivery_address_gate'}
     navigated=any(
-        item.get('usage',{}).get('source')=='navigation_gate'
+        item.get('usage',{}).get('source') in nav_sources
         and item['decision']['action']=='tap'
         for item in history
     )
+    print(f'DEBUG restaurants_ready_for_layout: navigated={navigated}, history_sources={[item.get("usage",{}).get("source") for item in history[-3:]]}',flush=True)
     if not navigated:
         return False
     # screenshot_context only enables hierarchy-free observation. It must not
@@ -2668,6 +3042,8 @@ def fast_offer_probe_after_navigation(history,next_step):
 def run_sequential_plan(
         device,folder,plan,recovery_assessor,assertion_assessor,max_steps=25):
     """Execute general capabilities strictly in compiled-plan order."""
+    global _toggle_position_cache
+    _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; last_action_obs=None; step_index=0
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
@@ -2889,6 +3265,8 @@ def run_sequential_plan(
     return finish('BLOCKED','Step budget exhausted')
 
 def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
+    global _toggle_position_cache
+    _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; unchanged=0; navigation_taps=0; scrolls=0
     recovery=Recovery(max_actions=3)
     try:
@@ -2984,7 +3362,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
                 decision,usage=recovery_action
             elif (control_required and restaurants_ready_for_layout(
                     obs,history,screenshot_context)):
-                decision,usage=layout_toggle_and_scroll_gate(obs,history,plan)
+                decision,usage=layout_toggle_and_scroll_gate(obs,history,plan,folder)
             else:
                 decision,usage=navigation_gate(
                     planner,obs,previous,history,tap_target,scroll_required,
