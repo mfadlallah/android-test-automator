@@ -2467,6 +2467,87 @@ def parse_layout_transition(plan):
         raise Blocked(str(exc)) from None
 
 
+def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason='', target=''):
+    """Save a cropped screenshot of the tap area for visual evidence."""
+    if not artifact_folder or 'png' not in obs:
+        return
+    try:
+        import io
+        import tempfile
+        artifact_folder = Path(artifact_folder)
+        crop_size = 200
+        left = max(0, x - crop_size // 2)
+        top = max(0, y - crop_size // 2)
+        right = left + crop_size
+        bottom = top + crop_size
+
+        # Try PIL first (preferred)
+        try:
+            from PIL import Image
+            png = obs['png']
+            img = Image.open(io.BytesIO(png))
+            width, height = img.size
+            right = min(width, right)
+            bottom = min(height, bottom)
+            if right - left < crop_size:
+                left = max(0, right - crop_size)
+            if bottom - top < crop_size:
+                top = max(0, bottom - crop_size)
+            cropped = img.crop((left, top, right, bottom))
+            crop_path = artifact_folder / f'{observation_index:02d}-tap-evidence.png'
+            cropped.save(crop_path)
+            print(f'DEBUG saved tap evidence (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+            return
+        except ImportError:
+            pass
+
+        # Fallback: use ImageMagick convert command
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            crop_spec = f'{crop_size}x{crop_size}+{left}+{top}'
+            result = subprocess.run(['convert', tmp_path, '-crop', crop_spec, '+repage',
+                                  str(artifact_folder / f'{observation_index:02d}-tap-evidence.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved tap evidence (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: use ffmpeg
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            result = subprocess.run(['ffmpeg', '-i', tmp_path, '-vf',
+                                  f'crop={crop_size}:{crop_size}:{left}:{top}', '-y',
+                                  str(artifact_folder / f'{observation_index:02d}-tap-evidence.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved tap evidence (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Last resort: save full screenshot with metadata
+        full_path = artifact_folder / f'{observation_index:02d}-tap-screenshot.png'
+        full_path.write_bytes(obs['png'])
+        metadata_path = artifact_folder / f'{observation_index:02d}-tap-evidence.json'
+        metadata_path.write_text(json.dumps({
+            'tap_point': [x, y],
+            'crop_bounds': [left, top, crop_size, crop_size],
+            'reason': reason,
+            'target': target,
+            'full_screenshot': full_path.name
+        }), encoding='utf-8')
+        print(f'DEBUG saved tap screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
+    except Exception as e:
+        print(f'DEBUG failed to save tap evidence: {e}',flush=True)
+
 def save_toggle_crop(obs, x, y, side, artifact_folder=None):
     """Save a cropped screenshot of the toggle area for visual evidence."""
     if not artifact_folder or 'png' not in obs:
@@ -3252,6 +3333,12 @@ def run_sequential_plan(
             continue
         if action in {'tap','scroll','screen_scroll','back'}:
             device.execute(decision,obs)
+            # Capture tap evidence after tap actions
+            if action == 'tap' and 'vision_point' in decision:
+                tap_x, tap_y = decision['vision_point']
+                tap_target = step.get('target', '')
+                tap_reason = decision.get('reason', '')
+                save_tap_evidence(obs, tap_x, tap_y, observation_index, folder, tap_reason, tap_target)
             if (capability!='recover_optional'
                     and usage.get('source') not in {
                         'in_app_message_gate','unexpected_modal_back_gate'}):
