@@ -727,16 +727,43 @@ def semantic_target_bounds(obs,target):
                 matches.append(row.get('bounds'))
     matches=[bounds for bounds in matches
              if isinstance(bounds,(list,tuple)) and len(bounds)==4]
-    if len(matches)!=1:
+    if not matches:
         return None
-    x1,y1,x2,y2=matches[0]
+
+    # If multiple matches, pick the topmost one (most likely the target label)
+    if len(matches) > 1:
+        selected = min(matches, key=lambda b: b[1])  # sort by y1 (top position)
+        print(f'DEBUG semantic_target_bounds: found {len(matches)} matches for "{target}", selected topmost', flush=True)
+        x1, y1, x2, y2 = selected
+    else:
+        x1, y1, x2, y2 = matches[0]
+
     # Include nearby badges, counters, checkmarks, and sibling labels without
     # expanding into unrelated areas of the screen.
+    # Use adaptive padding based on target size
+    item_width = x2 - x1
+    item_height = y2 - y1
+
+    # For small items (pills, badges): tighter padding
+    # For large items: more generous padding
+    if item_width < width * 0.2 and item_height < height * 0.1:
+        # Small pill/badge: tight crop with small margins
+        pad_left = round(width * 0.015)
+        pad_right = round(width * 0.08)
+        pad_top = round(height * 0.015)
+        pad_bottom = round(height * 0.015)
+    else:
+        # Larger item: standard padding
+        pad_left = round(width * 0.025)
+        pad_right = round(width * 0.14)
+        pad_top = round(height * 0.025)
+        pad_bottom = round(height * 0.025)
+
     return [
-        max(0,x1-round(width*.025)),
-        max(0,y1-round(height*.025)),
-        min(width,x2+round(width*.14)),
-        min(height,y2+round(height*.025)),
+        max(0, x1 - pad_left),
+        max(0, y1 - pad_top),
+        min(width, x2 + pad_right),
+        min(height, y2 + pad_bottom),
     ]
 
 
@@ -754,11 +781,14 @@ def assertion_crop_bounds(obs,step):
     registry = get_adapter_registry()
     adapter_crop = registry.get_assertion_crop(step.get('target',''), obs, step)
     if adapter_crop:
-        return adapter_crop
+        # Convert BoundingBox to [x1, y1, x2, y2] list
+        return [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
-        return semantic_target_bounds(obs,step.get('target',''))
+        bounds = semantic_target_bounds(obs,step.get('target',''))
+        if bounds:
+            return bounds
     return None
 
     # Note: Keep old logic below as reference for edge cases
