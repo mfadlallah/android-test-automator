@@ -104,22 +104,15 @@ class GenericAdapter(DomainAdapter):
         1. Finds all scrollable containers
         2. Analyzes OCR content in each
         3. Matches semantic meaning (target keywords match item types)
-        4. Returns the best match
+        4. Returns the best match with fallback to largest
 
-        Example: "scroll restaurants" matches scrollable containing
-        "Restaurant Name", "Rating", "Price" in OCR.
+        Example: "scroll restaurants" or "first restaurant item" matches
+        scrollable containing restaurant-like items.
         """
         if not target:
             return None
 
         target_lower = target.lower()
-
-        # Extract semantic keywords from target
-        keywords = self._extract_keywords(target)
-
-        if not keywords:
-            # Fallback: just find largest scrollable
-            return self._find_largest_scrollable(observation)
 
         # Find all scrollable containers
         scrollables = self._find_all_scrollables(observation)
@@ -127,23 +120,35 @@ class GenericAdapter(DomainAdapter):
         if not scrollables:
             return None
 
-        # Score each scrollable based on content match
-        scored = []
-        for scrollable in scrollables:
-            score = self._score_scrollable_match(
-                scrollable, keywords, observation
-            )
-            scored.append((scrollable, score))
+        # Extract semantic keywords from target
+        keywords = self._extract_keywords(target)
 
-        # Return scrollable with highest score
-        best = max(scored, key=lambda x: x[1])
-        if best[1] > 0:  # Must have some match
-            bounds = best[0].get('bounds', [])
+        # If we have keywords, try to find best match
+        if keywords:
+            scored = []
+            for scrollable in scrollables:
+                score = self._score_scrollable_match(
+                    scrollable, keywords, observation
+                )
+                scored.append((scrollable, score))
+
+            # Return scrollable with highest score (threshold 0 = any match)
+            best = max(scored, key=lambda x: x[1])
+            if best[1] > 0:
+                bounds = best[0].get('bounds', [])
+                if len(bounds) == 4:
+                    return BoundingBox(*bounds)
+
+        # Fallback: return largest scrollable (usually the main list)
+        # This handles cases like "first restaurant item" where semantic matching
+        # might not find a direct keyword match
+        largest = self._find_largest_scrollable(observation)
+        if largest:
+            bounds = largest.get('bounds', [])
             if len(bounds) == 4:
                 return BoundingBox(*bounds)
 
-        # Fallback: largest scrollable
-        return self._find_largest_scrollable(observation)
+        return None
 
     def get_assertion_crop(
         self,
