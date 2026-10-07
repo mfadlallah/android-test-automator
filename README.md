@@ -213,6 +213,12 @@ using generic semantic detection instead of domain-specific resource IDs:
 - Distributes remaining screen width: left button at width×75%, right button at width×90%
 - Handles dynamic heading widths and screen sizes without hardcoding
 
+**Scrollable container detection:**
+- Identifies RecyclerView, ListView, ScrollView, ViewPager via ADB hierarchy
+- Checks resource IDs and class names from UIAutomator dump
+- Trusts ADB hierarchy metadata instead of size-based heuristics
+- Works on any list-like container without domain-specific patterns
+
 **Visual evidence:**
 - Saves 120×120px cropped screenshot centered on tap coordinates
 - Multi-tool fallback: PIL (Python) → ImageMagick → ffmpeg → full screenshot + JSON
@@ -220,7 +226,7 @@ using generic semantic detection instead of domain-specific resource IDs:
 - Works on any environment: cloud, local, macOS, Linux
 
 This generic approach eliminates all domain-specific code and works for any
-heading-adjacent two-option control across all apps.
+heading-adjacent two-option control, scrollable container, and any app.
 
 ## Capability registry
 
