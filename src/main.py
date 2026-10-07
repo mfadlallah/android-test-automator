@@ -3192,30 +3192,59 @@ def needs_sequential_executor(plan):
 
 
 def screenshot_only_after_recovery(history,previous,next_step=None):
-    """Allow read-only visual progress while accessibility is transient."""
+    """
+    Detect if hierarchy is truly transient or if we should retry full dumps.
+
+    Returns True only for genuinely uncertain states. For stable screens
+    (vendor list, collections) we use full retries even after recovery.
+    """
     next_capability=(next_step or {}).get('capability')
+    next_target=(next_step or {}).get('target','').lower()
+
+    # Screens that have stable, reliable hierarchy even after recovery
+    stable_screens={
+        'vendor','restaurant','list','scroll','collection',
+        'recyclerview','listview','feed'
+    }
+
     visual_safe={
         *SEQUENTIAL_CAPABILITIES,'assert_changed','assert_scrolled','scroll',
         'recover_optional','tap',
     }
+
     # A semantic tap remains safe without hierarchy: locate_semantic_visual
     # requires exactly one high-confidence OCR label and refuses zero or
     # ambiguous matches before producing coordinates.
     if next_capability=='tap':
         return True
+
+    # Previous observation had unavailable hierarchy: screenshot fallback
     if (previous and previous.get('hierarchy_unavailable')
             and (next_step is None or next_capability in visual_safe)):
         return True
+
     if not history:
         return False
+
     latest=history[-1]
     step=latest.get('plan_step',{})
     action=latest.get('decision',{}).get('action')
     source=latest.get('usage',{}).get('source')
+
+    # Check if this is a recovery action
     recovery_action=((step.get('capability')=='recover_optional'
                       or source in {
                           'in_app_message_gate','unexpected_modal_back_gate'})
                      and action in {'tap','back'})
+
+    # If we just recovered, but the next step targets a stable screen,
+    # use full retries instead of screenshot-only
+    if recovery_action and next_step:
+        for keyword in stable_screens:
+            if keyword in next_target or keyword in next_step.get('hints',[]):
+                return False  # Use full retries for stable screens
+
+    # For truly transient states (generic navigation), use screenshot-only
     content_transition=(
         action in {'tap','back','scroll','screen_scroll'}
         and next_capability in visual_safe)
