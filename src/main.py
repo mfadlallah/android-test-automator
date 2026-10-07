@@ -781,8 +781,12 @@ def assertion_crop_bounds(obs,step):
     registry = get_adapter_registry()
     adapter_crop = registry.get_assertion_crop(step.get('target',''), obs, step)
     if adapter_crop:
-        # Convert BoundingBox to [x1, y1, x2, y2] list
-        return [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
+        # adapter_crop is already a tuple (x1, y1, x2, y2) from registry
+        if isinstance(adapter_crop, (list, tuple)) and len(adapter_crop) == 4:
+            return list(adapter_crop)
+        # Or it's a BoundingBox object
+        elif hasattr(adapter_crop, 'x1'):
+            return [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
