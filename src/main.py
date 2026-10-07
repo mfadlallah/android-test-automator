@@ -2618,21 +2618,25 @@ def locate_layout_toggle_visual(
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
 
-        # x-position: left button at ~20-30%, right button at ~70-90%
-        x=round(width*(.25 if side=='left' else .85))
+        # x-position: RadioGroup positioned to the right of heading
+        # Left button: just after heading ends + padding
+        # Right button: near screen right edge
+        padding = 30  # pixels between heading and toggle, and from screen edge
+        if side == 'left':
+            # Left toggle button: positioned just after heading
+            x = title_x2 + padding
+        else:
+            # Right toggle button: positioned near screen right edge
+            x = width - padding
+        x = round(x)
 
         # y-position: RadioGroup is vertically aligned with heading (same top/bottom)
         # Use the middle of the heading's vertical range
         y = (title_y1 + title_y2) // 2
 
         print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
+        print(f'DEBUG  - heading x-range: {title_x1}-{title_x2}, toggle x: {x}',flush=True)
         print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y: {y} (aligned with heading)',flush=True)
-
-        # Validate x is to the right of heading
-        if not (x>title_x2):
-            print(f'DEBUG fallback validation failed: x={x} NOT > title_x2={title_x2}',flush=True)
-            raise Blocked('Cannot ground toggle position relative to heading.')
-        print(f'DEBUG fallback validation passed: x={x} > title_x2={title_x2}',flush=True)
     else:
         # Score candidates by proximity to expected side
         transition=parse_layout_transition(plan)
