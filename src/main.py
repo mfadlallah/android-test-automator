@@ -16,6 +16,10 @@ import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 
+# Cache for toggle button positions learned from hierarchy observations
+# Format: {'left': (x, y), 'right': (x, y)} or None if not yet learned
+_toggle_position_cache = None
+
 from .recovery import (
     Recovery,
     RecoveryBlocked,
@@ -2468,13 +2472,41 @@ def locate_layout_toggle_visual(
     """Ground an idempotent setup or target tap on any layout toggle.
 
     Generically finds toggle buttons near any heading by:
-    1. Finding large text (heading)
-    2. Finding buttons to the right with toggle-like labels
-    3. Matching to requested side (left/right or initial/target)
+    1. If hierarchy available: extract from resource IDs and cache
+    2. If hierarchy unavailable: use cached positions from earlier hierarchy observations
+    3. Fall back to OCR detection if cache empty
+    4. Fall back to generic position as last resort
     """
+    global _toggle_position_cache
     import struct
     width,height=struct.unpack('>II',obs['png'][16:24])
-    print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}',flush=True)
+    print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}, has_hierarchy={bool(obs.get("nodes"))}',flush=True)
+
+    # Try to use cached positions first if hierarchy is unavailable
+    has_hierarchy = bool(obs.get('nodes'))
+    if not has_hierarchy and _toggle_position_cache:
+        print(f'DEBUG using cached toggle positions: {_toggle_position_cache}',flush=True)
+        transition=parse_layout_transition(plan)
+        side=transition['initial_side'] if setup else transition['target_side']
+        x, y = _toggle_position_cache[side]
+        view_name=transition['initial_name'] if setup else transition['target_name']
+        print(f'DEBUG using cached position: side={side}, x={x}, y={y}',flush=True)
+        if setup:
+            print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
+            return ({
+                'action':'tap','node':None,'direction':'none',
+                'reason':'Establish the '+view_name+' view precondition with an idempotent segment tap.',
+                'evidence':'Using cached toggle position from prior hierarchy observation.',
+                'vision_point':[x,y],'image_size':[width,height],
+            },{'source':'layout_precondition_setup','transition':transition})
+        else:
+            print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
+            return ({
+                'action':'tap','node':None,'direction':'none',
+                'reason':'Toggle Restaurants from '+transition['initial_name']+' view to '+transition['target_name']+' view.',
+                'evidence':'After idempotent setup, using cached toggle position on '+side+' from prior observation.',
+                'vision_point':[x,y],'image_size':[width,height],
+            },{'source':'layout_toggle_gate','transition':transition})
 
     # Find any large heading text (not hardcoded to specific text)
     titles=[row for row in obs.get('ocr',[])
@@ -2488,6 +2520,48 @@ def locate_layout_toggle_visual(
     title_x1, title_y1, title_x2, title_y2 = title['bounds']
     y=(title_y1+title_y2)//2
     print(f'DEBUG heading: text="{title.get("text")}", bounds=[{title_x1},{title_y1},{title_x2},{title_y2}], y={y}',flush=True)
+
+    # Try to find toggles from hierarchy if available (they have resource IDs, not visible text)
+    if has_hierarchy:
+        print(f'DEBUG trying to find toggles from hierarchy...',flush=True)
+        hierarchy_toggles = {}
+        for node in obs.get('nodes', []):
+            rid = node.get('resource_id', '').lower()
+            # Look for nodes with toggle/segment in resource ID
+            if ('toggle' in rid or 'segment' in rid) and node.get('enabled'):
+                x1, y1, x2, y2 = node.get('bounds', [0, 0, 0, 0])
+                x = (x1 + x2) // 2
+                y = (y1 + y2) // 2
+                # Determine side (left or right) based on x position relative to screen center
+                side = 'left' if x < width // 2 else 'right'
+                hierarchy_toggles[side] = (x, y)
+                print(f'DEBUG found hierarchy toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
+
+        if len(hierarchy_toggles) == 2:
+            print(f'DEBUG caching toggle positions from hierarchy: {hierarchy_toggles}',flush=True)
+            _toggle_position_cache = hierarchy_toggles
+            # Use the cached position now
+            side = transition['initial_side'] if setup else transition['target_side']
+            transition = parse_layout_transition(plan)
+            x, y = _toggle_position_cache[side]
+            view_name = transition['initial_name'] if setup else transition['target_name']
+            print(f'DEBUG using newly cached position: side={side}, x={x}, y={y}',flush=True)
+            if setup:
+                print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
+                return ({
+                    'action':'tap','node':None,'direction':'none',
+                    'reason':'Establish the '+view_name+' view precondition with an idempotent segment tap.',
+                    'evidence':'Grounded from hierarchy resource IDs.',
+                    'vision_point':[x,y],'image_size':[width,height],
+                },{'source':'layout_precondition_setup','transition':transition})
+            else:
+                print('Layout test: tapping '+view_name+' view on '+side+'.',flush=True)
+                return ({
+                    'action':'tap','node':None,'direction':'none',
+                    'reason':'Toggle Restaurants from '+transition['initial_name']+' view to '+transition['target_name']+' view.',
+                    'evidence':'Grounded from hierarchy resource IDs.',
+                    'vision_point':[x,y],'image_size':[width,height],
+                },{'source':'layout_toggle_gate','transition':transition})
 
     # Find toggle buttons: look for buttons to the right of heading
     # Buttons typically have shorter text (one word) and are to the right
@@ -2850,6 +2924,8 @@ def fast_offer_probe_after_navigation(history,next_step):
 def run_sequential_plan(
         device,folder,plan,recovery_assessor,assertion_assessor,max_steps=25):
     """Execute general capabilities strictly in compiled-plan order."""
+    global _toggle_position_cache
+    _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; last_action_obs=None; step_index=0
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
@@ -3071,6 +3147,8 @@ def run_sequential_plan(
     return finish('BLOCKED','Step budget exhausted')
 
 def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
+    global _toggle_position_cache
+    _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; unchanged=0; navigation_taps=0; scrolls=0
     recovery=Recovery(max_actions=3)
     try:
