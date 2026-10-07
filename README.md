@@ -219,6 +219,12 @@ using generic semantic detection instead of domain-specific resource IDs:
 - Trusts ADB hierarchy metadata instead of size-based heuristics
 - Works on any list-like container without domain-specific patterns
 
+**Item detection in containers:**
+- Uses parent-child relationships from hierarchy to find list items
+- Matches container bounds to locate the actual node
+- Selects topmost child as first visible item
+- Falls back to bounds-based search for containers without parent metadata
+
 **Visual evidence:**
 - Saves 120×120px cropped screenshot centered on tap coordinates
 - Multi-tool fallback: PIL (Python) → ImageMagick → ffmpeg → full screenshot + JSON

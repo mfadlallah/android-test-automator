@@ -96,6 +96,12 @@ The system detects layout controls generically without domain-specific code or h
 - Detects RecyclerView, ListView, ScrollView, ViewPager by resource ID and class name
 - Trusts ADB hierarchy structure over size-based heuristics
 
+**Item detection within containers** (Hierarchy parent relationships):
+- First identifies container node by matching bounds
+- Uses parent-child relationships to find direct children (potential list items)
+- Falls back to bounds-based search only if hierarchy approach fails
+- Selects topmost item as first visible
+
 **Toggle positioning** (Material Design right-alignment):
 - Detects RadioButton/RadioGroup/ToggleButton/SegmentedControl from hierarchy
 - Right-aligned: 100–180px from right edge
