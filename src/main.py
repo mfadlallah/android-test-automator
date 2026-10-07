@@ -2588,14 +2588,26 @@ def locate_layout_toggle_visual(
     print(f'DEBUG all OCR texts (first 10): {all_ocr_texts[:10]}',flush=True)
     print(f'DEBUG found {len(toggle_candidates)} toggle candidates',flush=True)
     if len(toggle_candidates)<2:
-        # Fallback: use heading position and generic toggle position
+        # Fallback: toggles are typically positioned:
+        # - To the RIGHT of the heading
+        # - BELOW the heading (in the bottom of first 1/3 of screen area)
+        # This is a generic layout pattern that works across apps
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
-        # Use generic position: left button at ~25%, right button at ~75%
-        x=round(width*(.25 if side=='left' else .75))
-        print(f'DEBUG fallback position: side={side}, setup={setup}, x={x} (25% of {width}={width*.25}, 75% of {width}={width*.75}), title_x2={title_x2}',flush=True)
-        # Heading can be near top (y as low as ~0.05) or mid-screen, not just center
-        # Allow full vertical range as long as x is to the right of heading
+
+        # x-position: left button at ~20-30%, right button at ~70-90%
+        x=round(width*(.25 if side=='left' else .85))
+
+        # y-position: toggles are below heading, in upper-middle area
+        # Use heading's bottom + offset, capped at bottom of first 1/3 of screen
+        toggle_y_min = title_y2 + 50  # At least 50px below heading
+        toggle_y_max = height // 3    # Bottom of first 1/3 of screen
+        y = max(toggle_y_min, min(toggle_y_max, (title_y2 + toggle_y_max) // 2))
+
+        print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
+        print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y-range: {toggle_y_min}-{toggle_y_max}',flush=True)
+
+        # Validate x is to the right of heading
         if not (x>title_x2):
             print(f'DEBUG fallback validation failed: x={x} NOT > title_x2={title_x2}',flush=True)
             raise Blocked('Cannot ground toggle position relative to heading.')
