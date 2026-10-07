@@ -184,7 +184,10 @@ class GenericAdapter(DomainAdapter):
         )
 
         if not first_item:
-            return None
+            # Fallback: estimate first item position based on scrollable height
+            # Common pattern: first item is at top of scrollable, ~80-120px tall
+            item_height = min(120, int((sy2 - sy1) * 0.15))  # ~15% of scrollable or max 120px
+            first_item = (sx1, sy1, sx2, sy1 + item_height)
 
         fx1, fy1, fx2, fy2 = first_item
 
