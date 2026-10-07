@@ -174,9 +174,11 @@ class GenericAdapter(DomainAdapter):
         # Find scrollable container
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
+            print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}"', flush=True)
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
+        print(f'DEBUG adapter.get_assertion_crop: Found scrollable for "{target}": ({sx1}, {sy1}, {sx2}, {sy2})', flush=True)
 
         # Find first visible child item
         first_item = self._find_first_item_in_container(
@@ -188,6 +190,9 @@ class GenericAdapter(DomainAdapter):
             # Common pattern: first item is at top of scrollable, ~80-120px tall
             item_height = min(120, int((sy2 - sy1) * 0.15))  # ~15% of scrollable or max 120px
             first_item = (sx1, sy1, sx2, sy1 + item_height)
+            print(f'DEBUG adapter.get_assertion_crop: Using estimated first item for "{target}": {first_item}', flush=True)
+        else:
+            print(f'DEBUG adapter.get_assertion_crop: Found first item for "{target}": {first_item}', flush=True)
 
         fx1, fy1, fx2, fy2 = first_item
 
