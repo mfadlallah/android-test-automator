@@ -117,6 +117,11 @@ class GenericAdapter(DomainAdapter):
         # Find all scrollable containers
         scrollables = self._find_all_scrollables(observation)
 
+        # If NO scrollables found by scrollable flag, try to find large containers
+        # that act like lists (RecyclerView, ListView, etc. may not be marked scrollable)
+        if not scrollables:
+            scrollables = self._find_large_containers(observation)
+
         if not scrollables:
             return None
 
@@ -311,6 +316,24 @@ class GenericAdapter(DomainAdapter):
             return BoundingBox(*bounds)
 
         return None
+
+    def _find_large_containers(
+        self, observation: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Find large containers that might act like lists (even if not marked scrollable)."""
+        containers = []
+
+        for node in observation.get('nodes', []):
+            bounds = node.get('bounds', [0, 0, 0, 0])
+            if len(bounds) == 4:
+                width = bounds[2] - bounds[0]
+                height = bounds[3] - bounds[1]
+                # Look for tall, wide containers (list-like dimensions)
+                # These might be RecyclerView, ListView, etc. not marked as scrollable
+                if width > 200 and height > 300:  # Large enough to be a list
+                    containers.append(node)
+
+        return containers
 
     def _score_scrollable_match(
         self,
