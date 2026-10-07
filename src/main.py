@@ -2618,16 +2618,15 @@ def locate_layout_toggle_visual(
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
 
-        # x-position: RadioGroup positioned to the right of heading, containing 2 buttons
-        # Distribute remaining space (title_x2 to width) into 4 segments for 2 buttons
-        # Left button centered in first 1/4, right button centered in last 3/4
-        remaining_width = width - title_x2
+        # x-position: RadioGroup is typically right-aligned on screen
+        # Two 28dp buttons with padding: assume ~100px from right edge to right button center
+        # and ~80px spacing between buttons (Material Design standard)
         if side == 'left':
-            # Left toggle button: center of first quarter
-            x = title_x2 + remaining_width // 4
+            # Left button: further from right edge
+            x = width - 180
         else:
-            # Right toggle button: center of last quarter
-            x = title_x2 + 3 * remaining_width // 4
+            # Right button: closer to right edge
+            x = width - 100
         x = round(x)
 
         # y-position: RadioGroup is vertically aligned with heading (same top/bottom)
