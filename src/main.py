@@ -2508,14 +2508,16 @@ def locate_layout_toggle_visual(
                 'vision_point':[x,y],'image_size':[width,height],
             },{'source':'layout_toggle_gate','transition':transition})
 
-    # Find heading text in content area (not status bar, not header, not profile section)
-    # Exclude top 300px (status bar ~25px, app header ~50px, search bar ~100px, profile ~50px)
-    # Min height 30px to filter out small icons/symbols
+    # Find heading text in content area (not status bar, not header, not search bar)
+    # Exclude top 300px (status bar, app header, search bar)
+    # Min height 30px, max width 60% of screen (to skip wide search bars/banners)
+    max_heading_width = width * 0.6  # ~650px for 1080px screen
     titles=[row for row in obs.get('ocr',[])
             if (row.get('confidence',0)>=.7 and len(row.get('text',''))>2 and
                 row.get('bounds',[])[3]-row.get('bounds',[])[1]>=30 and
-                row.get('bounds',[])[1]>=300)]  # y >= 300px (below header area)
-    print(f'DEBUG found {len(titles)} heading candidates in content area (y>=300): {[row.get("text") for row in titles[:3]]}',flush=True)
+                row.get('bounds',[])[1]>=300 and
+                (row.get('bounds',[])[2]-row.get('bounds',[])[0])<=max_heading_width)]
+    print(f'DEBUG found {len(titles)} heading candidates in content area (y>=300, width<60%): {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
         raise Blocked('No heading text found for toggle grounding.')
 
