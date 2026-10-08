@@ -123,6 +123,7 @@ class Device:
         self.remote = '/data/local/tmp/agent-' + uuid.uuid4().hex + '.xml'
         self.observation_index = 0  # Track observation counter
         self.artifact_folder = None  # Set by orchestrator for stability waiting
+        self.left_main_activity = False  # Once navigated away, use screenshot-only for stability
     def adb(self, *args, binary=False):
         p = subprocess.run(['adb','-s',self.serial,*args], capture_output=True, timeout=35)
         if p.returncode: raise Blocked('ADB failed: '+p.stderr.decode(errors='replace')[-600:])
@@ -238,7 +239,7 @@ class Device:
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
-    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None, screenshot_only=False):
+    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None, screenshot_only=None):
         """Wait for UI layout to stabilize instead of fixed sleep.
 
         Observes screen twice with interval and checks if nodes/OCR are stable.
@@ -250,8 +251,12 @@ class Device:
             target_bounds: Optional [x1, y1, x2, y2] to focus stability on region
                           (useful when animations exist outside target area)
             screenshot_only: If True, use screenshot/OCR only (skip hierarchy dump).
+                           If None (default), auto-detect based on whether we've left main activity.
                            Use after recovery actions when UIAutomator is unresponsive.
         """
+        # Auto-detect screenshot-only mode if not explicitly set
+        if screenshot_only is None:
+            screenshot_only = self.left_main_activity
         stable_checks = 0
         required_checks = 1  # Reduced from 2 for faster convergence with animations
         import time as time_module
@@ -3511,6 +3516,10 @@ def run_sequential_plan(
             continue
         if action in {'tap','scroll','screen_scroll','back'}:
             device.execute(decision,obs)
+            # Once we've navigated away from main activity, use screenshot-only for stability
+            # (UIAutomator service is unreliable on non-launcher activities)
+            if action in {'tap','scroll','screen_scroll'}:
+                device.left_main_activity = True
             # Capture tap evidence after tap actions
             if action == 'tap' and 'vision_point' in decision:
                 tap_x, tap_y = decision['vision_point']
