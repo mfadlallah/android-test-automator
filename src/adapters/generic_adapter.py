@@ -149,9 +149,7 @@ class GenericAdapter(DomainAdapter):
         # might not find a direct keyword match
         largest = self._find_largest_scrollable(observation)
         if largest:
-            bounds = largest.get('bounds', [])
-            if len(bounds) == 4:
-                return BoundingBox(*bounds)
+            return largest
 
         return None
 
@@ -187,7 +185,6 @@ class GenericAdapter(DomainAdapter):
             # Ultimate fallback: use full screen width, top portion for first item
             png = observation.get('png', b'')
             if len(png) >= 24:
-                import struct
                 width, height = struct.unpack('>II', png[16:24])
                 # Estimate first item in top third of screen
                 return BoundingBox(0, int(height * 0.15), width, int(height * 0.35))
@@ -226,7 +223,8 @@ class GenericAdapter(DomainAdapter):
                     observation, expected_label, (fx1, fy1, fx2, fy2)
                 )
                 if label_bounds:
-                    return BoundingBox(*label_bounds)
+                    return BoundingBox(*self._expand_label_bounds(
+                        label_bounds,(fx1,fy1,fx2,fy2),(width,height)))
 
                 # If label not found, return full item bounds so model can assess
                 # whether the expected value is present or absent in the item.
@@ -296,7 +294,8 @@ class GenericAdapter(DomainAdapter):
         for node in observation.get('nodes', []):
             # Check scrollable flag OR resource ID/class name indicating list containers
             resource_id = node.get('resource_id', '').lower()
-            node_class = node.get('class', '').lower()
+            node_class = (node.get('class_name') or
+                          node.get('class','')).lower()
 
             is_scrollable = node.get('scrollable', False)
             is_list_container = (
@@ -435,16 +434,24 @@ class GenericAdapter(DomainAdapter):
                     if width > 50 and height > 50 and ny2 > cy1:
                         candidates.append((nx1, ny1, nx2, ny2))
 
-        # If direct children search didn't work, fall back to bounds-based search
+        # If direct children search didn't work, fall back to bounds-based search.
+        # Exclude the container itself and other near-full-container wrappers;
+        # otherwise the assertion crop becomes almost the entire screen.
         if not candidates:
             for node in nodes:
                 nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
                 width = nx2 - nx1
                 height = ny2 - ny1
+                container_width=cx2-cx1
+                container_height=cy2-cy1
+                same_as_container=(nx1,ny1,nx2,ny2)==(
+                    cx1,cy1,cx2,cy2)
 
                 # Item must be substantial and within container
-                if (width > 50 and height > 50 and
-                    nx2 > cx1 and nx1 < cx2 and
+                if (not same_as_container and
+                    width >= container_width * .55 and
+                    50 < height < container_height * .75 and
+                    nx1 >= cx1 and nx2 <= cx2 and
                     ny2 > cy1 and ny1 < cy2):
                     candidates.append((nx1, ny1, nx2, ny2))
 
@@ -453,6 +460,30 @@ class GenericAdapter(DomainAdapter):
 
         # Return topmost item (first visible)
         return min(candidates, key=lambda item: (max(item[1], cy1), item[0]))
+
+    def _expand_label_bounds(
+        self,
+        label_bounds: List[int],
+        item_bounds: Tuple[int,int,int,int],
+        screenshot_dims: Tuple[int,int]
+    ) -> List[int]:
+        """Add enough item context for reliable OCR/model label inspection."""
+        x1,y1,x2,y2=label_bounds
+        ix1,iy1,ix2,iy2=item_bounds
+        screen_width,screen_height=screenshot_dims
+        label_width=max(1,x2-x1)
+        label_height=max(1,y2-y1)
+        target_width=max(220,label_width*4)
+        target_height=max(140,label_height*4)
+        center_x=(x1+x2)//2
+        center_y=(y1+y2)//2
+        left=max(ix1,center_x-target_width//2)
+        top=max(iy1,center_y-target_height//2)
+        right=min(ix2,screen_width,left+target_width)
+        bottom=min(iy2,screen_height,top+target_height)
+        left=max(ix1,right-target_width)
+        top=max(iy1,bottom-target_height)
+        return [left,top,right,bottom]
 
     def _find_label_in_region(
         self,

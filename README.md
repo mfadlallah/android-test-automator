@@ -362,12 +362,15 @@ label/resource/OCR grounding performs actions, while the local vision model
 performs read-only scoped assertions. Negative assertions require the target
 container itself to be visible, and the run cannot pass until every required
 step has evidence. The two layout-transition cases continue to use their
-hardened layout adapter.
+validated capability steps through the same generic adapter.
 
 After a verified optional sheet is dismissed by either Android Back or a
 grounded close-button tap, the sequential executor temporarily tolerates an
-unavailable accessibility hierarchy and continues from screenshot/OCR. The
-fallback remains active only while hierarchy is unavailable; ordinary taps do
+unavailable accessibility hierarchy and continues from screenshot/OCR. For a
+valid dump from a non-launcher or externally owned foreground activity, the
+observer selects the runtime foreground package and keeps a correctly indexed
+parent/child tree instead of discarding the hierarchy. Screenshot fallback
+remains active only while hierarchy is genuinely unavailable; ordinary taps do
 not authorize it.
 
 Recovery has a screen-independent safety invariant: one recovery step may not
@@ -391,11 +394,11 @@ attempt that explicitly asks the model to reinspect the scoped target and
 small/low-contrast badges. The guard remains strict after that retry.
 Every label-based assertion (`visible`, `hidden`, `selected`, `contains`, and
 `not_contains`) first grounds its target using accessibility text, resource ID,
-or OCR, then crops and adaptively magnifies that region with the built-in macOS
-`sips` tool before local OCR and vision inference. Tight pills and labels receive
-more zoom than full-width list items, with a 1600-pixel cap to keep Ollama
-prompts bounded. Assertions scoped to a `first ... item/card/row` use the first
-grounded list child or visible filter anchor instead of the whole screen.
+or OCR, then crops and adaptively magnifies that region with Pillow, with macOS
+`sips` as fallback, before local OCR and vision inference. Tight pills and
+labels receive more zoom than full-width list items, with a 1600-pixel cap to
+keep Ollama prompts bounded. Assertions scoped to a `first ... item/card/row`
+use the first grounded child of the matched list instead of the whole screen.
 
 Visible action labels are never semantically reversed. For example, a case that
 requests `Ratings (low to high)` is blocked when the app exposes only
@@ -613,12 +616,13 @@ or content inside the asserted region.
 `contains` and `not_contains` assertions enforce evidence polarity for both
 PASS and FAIL. A positive assertion cannot pass with wording such as `Ad is not
 present`, and a negative assertion cannot fail using that same proof of
-absence. For a first restaurant item, the runner crops the first direct
-`vendorsRecycler` child and reruns local Apple Vision OCR on the adaptively
-magnified crop. An exact scoped OCR/accessibility match can pass without an
-Ollama call; OCR absence alone never proves a negative assertion. Scoped OCR is
-also supplied for other grounded label assertions and stored beside the crop as
-`*-crop-ocr.json` when available.
+absence. For any `first ... item` target, the runner finds the matching
+scrollable container, crops its first visible item, and reruns local Apple
+Vision OCR on the adaptively magnified crop. An exact scoped
+OCR/accessibility match can pass a positive assertion—or fail a negative
+assertion—without an Ollama call. OCR absence alone never proves a negative
+assertion. Scoped OCR is also supplied for other grounded label assertions and
+stored beside the crop as `*-crop-ocr.json` when available.
 When accessibility is transiently unavailable, combined OCR rows such as
 `Filters 1` ground both the labelled target and its adjacent counter, so the
 same scoped crop and deterministic value check still run.
