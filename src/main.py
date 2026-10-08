@@ -3441,10 +3441,18 @@ def run_sequential_plan(
                 'decision':decision,
             }
         elif capability=='recover_optional':
-            known=(delivery_address_gate(obs,history) or
-                   in_app_message_gate(obs,history) or
-                   unexpected_modal_back_gate(
-                       obs,history,plan,step_index))
+            delivery_result = delivery_address_gate(obs,history)
+            print(f"DEBUG recovery: delivery_address_gate returned {delivery_result is not None}", flush=True)
+
+            message_result = in_app_message_gate(obs,history)
+            print(f"DEBUG recovery: in_app_message_gate returned {message_result is not None}", flush=True)
+
+            modal_result = unexpected_modal_back_gate(obs,history,plan,step_index)
+            print(f"DEBUG recovery: unexpected_modal_back_gate returned {modal_result is not None}", flush=True)
+            if modal_result is not None:
+                print(f"DEBUG recovery: modal action = {modal_result[0].get('action')}", flush=True)
+
+            known=(delivery_result or message_result or modal_result)
             if known is not None:
                 decision,usage=known
             else:
