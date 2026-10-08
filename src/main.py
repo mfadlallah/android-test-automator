@@ -2306,15 +2306,20 @@ def modal_dimming_evidence(png,bounds,decoded=None):
     bg_dark_ratio=sum(value<170 for value in background)/len(background)
     fg_bright_ratio=sum(value>190 for value in foreground)/len(foreground)
 
-    # Check each threshold individually
-    contrast_ok = fg_median-bg_median>=28
-    edge_ok = inner_median-outer_median>=18
-    dark_ok = bg_dark_ratio>=.45
-    bright_ok = fg_bright_ratio>=.28
-    confirmed = contrast_ok and edge_ok and dark_ok and bright_ok
+    # Lenient thresholds: any notable dimming is enough to close sheet
+    # Original: required ALL strict thresholds. Now: majority pass OR strong contrast
+    contrast_ok = fg_median-bg_median>=15  # Lowered from 28
+    edge_ok = inner_median-outer_median>=10  # Lowered from 18
+    dark_ok = bg_dark_ratio>=.30  # Lowered from 0.45
+    bright_ok = fg_bright_ratio>=.15  # Lowered from 0.28
+
+    # Accept if: strong contrast (>=25) OR at least 3 of 4 thresholds pass
+    strong_contrast = fg_median-bg_median>=25
+    thresholds_passed = sum([contrast_ok, edge_ok, dark_ok, bright_ok])
+    confirmed = strong_contrast or thresholds_passed >= 3
 
     if not confirmed:
-        print(f"DEBUG modal_dimming: contrast={fg_median-bg_median}(need>=28) edge={inner_median-outer_median}(need>=18) dark_ratio={round(bg_dark_ratio,2)}(need>=0.45) bright_ratio={round(fg_bright_ratio,2)}(need>=0.28)", flush=True)
+        print(f"DEBUG modal_dimming: contrast={fg_median-bg_median}(need>=15/strong>=25) edge={inner_median-outer_median}(need>=10) dark={round(bg_dark_ratio,2)}(need>=0.30) bright={round(fg_bright_ratio,2)}(need>=0.15) passed={thresholds_passed}/4", flush=True)
 
     return {
         'confirmed':confirmed,
