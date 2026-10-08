@@ -217,12 +217,11 @@ class GenericAdapter(DomainAdapter):
                 if label_bounds:
                     return BoundingBox(*label_bounds)
 
-                # Fallback: tight badge crop (top-right area)
-                return BoundingBox(
-                    *self._get_badge_crop((fx1, fy1, fx2, fy2), (width, height))
-                )
+                # If label not found, return full item bounds so model can assess
+                # whether the expected value is present or absent in the item.
+                # A tiny badge crop is insufficient for this assessment.
 
-        # Return entire first item
+        # Return entire first item (for both regular assertions and when label not found)
         return BoundingBox(fx1, fy1, fx2, fy2)
 
     def handle_recovery(
