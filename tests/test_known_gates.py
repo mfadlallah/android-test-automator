@@ -636,20 +636,20 @@ class KnownGateTests(unittest.TestCase):
         })
         self.assertTrue(needs_sequential_executor(plan))
 
-    def test_close_tap_enables_temporary_screenshot_only_observation(self):
+    def test_close_tap_reprobes_full_hierarchy(self):
         history=[{
             'plan_step':{'capability':'recover_optional'},
             'decision':{'action':'tap'},
         }]
-        self.assertTrue(screenshot_only_after_recovery(history,None))
+        self.assertFalse(screenshot_only_after_recovery(history,None))
 
-    def test_screenshot_only_continues_until_hierarchy_recovers(self):
+    def test_hierarchy_miss_is_reprobed_on_next_observation(self):
         previous={'hierarchy_unavailable':True}
         history=[{
             'plan_step':{'capability':'assert_visible'},
             'decision':{'action':'wait'},
         }]
-        self.assertTrue(screenshot_only_after_recovery(history,previous))
+        self.assertFalse(screenshot_only_after_recovery(history,previous))
 
     def test_normal_tap_does_not_enable_screenshot_only_observation(self):
         history=[{
@@ -658,7 +658,7 @@ class KnownGateTests(unittest.TestCase):
         }]
         self.assertFalse(screenshot_only_after_recovery(history,None))
 
-    def test_content_tap_allows_screenshot_assertion_during_recompose(self):
+    def test_content_tap_reprobes_hierarchy_before_assertion(self):
         history=[{
             'plan_step':{'capability':'tap','target':'Apply'},
             'decision':{'action':'tap'},
@@ -667,17 +667,17 @@ class KnownGateTests(unittest.TestCase):
         next_step={
             'capability':'assert_contains','target':'Filters pill','value':'1',
         }
-        self.assertTrue(screenshot_only_after_recovery(
+        self.assertFalse(screenshot_only_after_recovery(
             history,None,next_step))
 
-    def test_next_semantic_tap_enables_safe_ocr_fallback(self):
+    def test_next_semantic_tap_still_reprobes_hierarchy(self):
         history=[{
             'plan_step':{'capability':'tap','target':'Filters'},
             'decision':{'action':'tap'},
             'usage':{'source':'sequential_executor'},
         }]
         next_step={'capability':'tap','target':'Ratings (High To Low)'}
-        self.assertTrue(screenshot_only_after_recovery(
+        self.assertFalse(screenshot_only_after_recovery(
             history,None,next_step))
 
     def test_semantic_tap_uses_exact_ocr_when_hierarchy_is_missing(self):

@@ -175,6 +175,50 @@ class GenericAdapter(DomainAdapter):
         """
         target_lower = (target or '').lower()
 
+        # Collection phrases are structural intent, not literal labels.  For
+        # example, "refreshed restaurant items" must resolve to the list
+        # viewport, never to a search field that happens to contain the word
+        # "restaurant".
+        if 'first' not in target_lower and self._is_collection_target(target):
+            collection = self.find_scrollable_region(target, observation)
+            if collection:
+                png = observation.get('png', b'')
+                screen_dims=(None,None)
+                if len(png) >= 24:
+                    screen_dims=struct.unpack('>II',png[16:24])
+                width,height=screen_dims
+                near_full_screen=(
+                    width and height and
+                    (collection.x2-collection.x1)*(collection.y2-collection.y1)
+                    >= width*height*.85)
+                if not near_full_screen:
+                    print(
+                        'DEBUG adapter.get_assertion_crop: '
+                        f'Using collection bounds for "{target}": '
+                        f'({collection.x1}, {collection.y1}, '
+                        f'{collection.x2}, {collection.y2})',
+                        flush=True,
+                    )
+                    return collection
+                print(
+                    'DEBUG adapter.get_assertion_crop: ignored near-full-screen '
+                    f'collection candidate for "{target}"',flush=True)
+
+            png = observation.get('png', b'')
+            if len(png) >= 24:
+                width, height = struct.unpack('>II', png[16:24])
+                estimated = self._estimate_first_item_from_ocr(
+                    target, observation, (width, height))
+                if estimated:
+                    print(
+                        'DEBUG adapter.get_assertion_crop: '
+                        f'Using OCR collection bounds for "{target}": '
+                        f'{estimated}',
+                        flush=True,
+                    )
+                    return BoundingBox(*estimated)
+            return None
+
         # Check if this is a "first item" assertion
         if 'first' not in target_lower:
             # For non-first-item assertions, use full screen or grounded target
@@ -299,6 +343,14 @@ class GenericAdapter(DomainAdapter):
             len(expected)==1 and len(observed)==1 and
             next(iter(expected)).rstrip('s')==next(iter(observed)).rstrip('s')
         )
+
+    def _is_collection_target(self, target: str) -> bool:
+        """Return whether a test target describes a collection structure."""
+        words=set(re.findall(r'[\w]+',self._normalize_text(target),re.UNICODE))
+        return bool(words & {
+            'item','items','list','lists','result','results','collection',
+            'feed','rows','cards','recyclerview','listview',
+        })
 
     def _estimate_first_item_from_ocr(
         self,

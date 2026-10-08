@@ -648,7 +648,72 @@ wait_changed compare BEFORE and CURRENT and wait if loading or unchanged.
 Return failed only for an observed product contradiction, wait for transient
 loading, and blocked when the assertion cannot be grounded. Evidence must name
 the observed UI fact and mention the target (e.g., "the first restaurant item").
+Assertion polarity is strict. For assert_contains, status is passed only when
+the expected value is present and failed when it is absent. For
+assert_not_contains, status is passed only when the expected value is absent
+from the visible grounded target and failed when it is present. Never invert
+this status. Always name both the expected value and target in evidence.
 Return only JSON matching the schema.'''
+
+
+def contains_statement_is_negative(value,statement):
+    """Detect an explicit statement that a value is absent."""
+    value=' '.join(str(value or '').split()).casefold()
+    statement=' '.join(str(statement or '').split()).casefold()
+    if not value:
+        return False
+    escaped=re.escape(value)
+    return any(re.search(pattern,statement) for pattern in (
+        r'\b(?:no|not|without|absent|missing|never)\b.{0,100}\b'+escaped+r'\b',
+        r'\b'+escaped+r'\b.{0,100}\b(?:not|absent|missing|unavailable)\b',
+        r"\b(?:does\s+not|doesn't|did\s+not|cannot|can't)\b.{0,120}\b"+
+        r'(?:contain|show|display|include|have|find|see)\b.{0,80}\b'+escaped+r'\b',
+    ))
+
+
+def canonicalize_scoped_contains_result(step,result,crop_bounds):
+    """Apply assertion polarity to an explicit scoped visual observation.
+
+    Small local vision models occasionally describe the right observation but
+    attach the opposite status.  When a magnified target crop was supplied and
+    the response explicitly names the expected value and its presence/absence,
+    convert that observation into deterministic contains semantics.  Unrelated
+    model text is deliberately left untouched for normal validation to reject.
+    """
+    capability=step.get('capability')
+    if (capability not in {'assert_contains','assert_not_contains'}
+            or not crop_bounds or not isinstance(result,dict)):
+        return result
+    value=' '.join(str(step.get('value','')).split())
+    if not value:
+        return result
+    statement=' '.join((str(result.get('reason',''))+' '+
+                        str(result.get('evidence',''))).split())
+    if not (set(semantic_tokens(value)) & set(semantic_tokens(statement))):
+        return result
+
+    negative=contains_statement_is_negative(value,statement)
+    escaped=re.escape(value.casefold())
+    positive=(not negative and any(re.search(pattern,statement.casefold())
+        for pattern in (
+            r'\b'+escaped+r'\b.{0,80}\b(?:present|visible|shown|displayed|found)\b',
+            r'\b(?:contains?|shows?|displays?|includes?|has|found|see)\b.{0,80}\b'+escaped+r'\b',
+        )))
+    if not negative and not positive:
+        return result
+
+    observed_present=positive
+    expected_present=capability=='assert_contains'
+    status='passed' if observed_present==expected_present else 'failed'
+    target=' '.join(str(step.get('target','')).split()) or 'grounded target'
+    relation='contains' if observed_present else 'does not contain'
+    return {
+        'status':status,
+        'reason':f'{target} {relation} {value}.',
+        'evidence':(
+            f'The scoped visible {target} {relation} the expected value '
+            f'{value}.'),
+    }
 
 
 def assertion_evidence_error(step,result):
@@ -681,16 +746,9 @@ def assertion_evidence_error(step,result):
 
     if capability in {'assert_contains','assert_not_contains'}:
         statement=' '.join(
-            (result.get('reason','')+' '+result.get('evidence','')).split()
-        ).casefold()
-        value=' '.join(str(step.get('value','')).split()).casefold()
-        escaped=re.escape(value)
-        negative=bool(value and any(re.search(pattern,statement) for pattern in (
-            r'\b(?:no|not|without|absent|missing|never)\b.{0,100}\b'+escaped+r'\b',
-            r'\b'+escaped+r'\b.{0,100}\b(?:not|absent|missing|unavailable)\b',
-            r"\b(?:does\s+not|doesn't|did\s+not|cannot|can't)\b.{0,120}\b"+
-            r'(?:contain|show|display|include|have|find|see)\b.{0,80}\b'+escaped+r'\b',
-        )))
+            (result.get('reason','')+' '+result.get('evidence','')).split())
+        negative=contains_statement_is_negative(
+            step.get('value',''),statement)
         if capability=='assert_contains':
             if status=='passed' and negative:
                 return ('Positive contains assertion used negative evidence '
@@ -1468,6 +1526,8 @@ def assess_plan_assertion(
                         'passed','wait','failed','blocked'}
                     and isinstance(result.get('reason'),str)
                     and isinstance(result.get('evidence'),str)):
+                result=canonicalize_scoped_contains_result(
+                    step,result,crop_bounds)
                 if (result['status']=='passed'
                         and not result['evidence'].strip()):
                     last_error='Assertion pass had no observed evidence.'
@@ -3410,78 +3470,14 @@ def needs_sequential_executor(plan):
 
 
 def screenshot_only_after_recovery(history,previous,next_step=None):
+    """Keep the main executor on a fresh accessibility observation.
+
+    Action execution may use screenshot-only stability probes internally, but
+    the next plan step must re-probe UIAutomator.  Otherwise one transient
+    hierarchy miss (or any semantic tap in the old policy) permanently removed
+    resource IDs and container relationships from the rest of the run.
     """
-    Detect if hierarchy is truly transient or if we should retry full dumps.
-
-    Returns True only for genuinely uncertain states. For stable screens
-    (vendor list, collections) we use full retries even after recovery.
-    """
-    next_capability=(next_step or {}).get('capability')
-    next_target=(next_step or {}).get('target','').lower()
-
-    # Screens that have stable, reliable hierarchy even after recovery
-    stable_screens={
-        'vendor','restaurant','list','scroll','collection',
-        'recyclerview','listview','feed'
-    }
-
-    visual_safe={
-        *SEQUENTIAL_CAPABILITIES,'assert_changed','assert_scrolled','scroll',
-        'recover_optional','tap',
-    }
-
-    # A semantic tap remains safe without hierarchy: locate_semantic_visual
-    # requires exactly one high-confidence OCR label and refuses zero or
-    # ambiguous matches before producing coordinates.
-    if next_capability=='tap':
-        return True
-
-    # Previous observation had unavailable hierarchy: screenshot fallback
-    if (previous and previous.get('hierarchy_unavailable')
-            and (next_step is None or next_capability in visual_safe)):
-        return True
-
-    if not history:
-        return False
-
-    latest=history[-1]
-    step=latest.get('plan_step',{})
-    action=latest.get('decision',{}).get('action')
-    source=latest.get('usage',{}).get('source')
-
-    # Check if this is a recovery action
-    recovery_action=((step.get('capability')=='recover_optional'
-                      or source in {
-                          'in_app_message_gate','unexpected_modal_back_gate'})
-                     and action in {'tap','back'})
-
-    # After recovery, use full retries (not screenshot-only) to capture
-    # hierarchy when available. Most assertions and actions after recovery
-    # need proper hierarchy for grounding.
-    if recovery_action:
-        # Check if next step is truly transient (generic navigation without
-        # specific targets). For anything involving assertions, scrolling, or
-        # list items, use full retries.
-        if next_step and next_capability in visual_safe:
-            # Check for stable screen keywords in target or hints
-            for keyword in stable_screens:
-                if (keyword in next_target or
-                    keyword in next_step.get('hints',[])):
-                    return False  # Use full retries for stable screens
-
-            # For assertions after recovery, use full retries to ensure
-            # we can capture hierarchy for grounding
-            if next_capability.startswith('assert_'):
-                return False  # Use full retries for assertions
-
-        # Only use screenshot-only after recovery for actual navigation actions
-        return False  # Default: use full retries after recovery
-
-    # For non-recovery transitions, use screenshot-only for speed
-    content_transition=(
-        action in {'tap','back','scroll','screen_scroll'}
-        and next_capability in visual_safe)
-    return content_transition
+    return False
 
 
 def fast_offer_probe_after_navigation(history,next_step):

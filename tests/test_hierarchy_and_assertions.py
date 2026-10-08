@@ -6,6 +6,7 @@ from unittest.mock import patch
 from src.main import (
     assess_plan_assertion,
     assertion_crop_bounds,
+    canonicalize_scoped_contains_result,
     parse_nodes,
     scoped_exact_value_result,
 )
@@ -59,6 +60,38 @@ class HierarchyParsingTests(unittest.TestCase):
 
 
 class ScopedLabelAssertionTests(unittest.TestCase):
+    def test_collection_target_does_not_ground_to_search_label(self):
+        png=(b'\x89PNG\r\n\x1a\n'+b'\x00'*8+
+             struct.pack('>II',1080,2340))
+        obs={'png':png,'nodes':[],'ocr':[
+            {'text':'Search for a Restaurant or Meal','confidence':.99,
+             'bounds':[140,330,900,410]},
+            {'text':'Filters','confidence':.99,'bounds':[40,850,220,930]},
+            {'text':'Cuisines','confidence':.99,'bounds':[250,850,470,930]},
+            {'text':'Vendor One','confidence':.99,
+             'bounds':[40,1050,400,1130]},
+        ]}
+        bounds=assertion_crop_bounds(obs,{
+            'capability':'assert_visible',
+            'target':'refreshed restaurant items','value':'',
+        })
+        self.assertGreater(bounds[1],930)
+        self.assertNotEqual([140,330,900,410],bounds)
+
+    def test_scoped_negative_observation_gets_deterministic_polarity(self):
+        step={
+            'capability':'assert_not_contains',
+            'target':'first product item','value':'Sponsored',
+        }
+        result=canonicalize_scoped_contains_result(step,{
+            'status':'failed',
+            'reason':'Sponsored is not present in the image.',
+            'evidence':'The text Sponsored is not visible in the image.',
+        },[0,900,1080,1450])
+        self.assertEqual('passed',result['status'])
+        self.assertIn('first product item',result['evidence'])
+        self.assertIn('Sponsored',result['evidence'])
+
     def test_structural_target_does_not_match_single_character_ocr(self):
         adapter=GenericAdapter()
         obs={'ocr':[
