@@ -9,6 +9,7 @@ from src.main import (
     parse_nodes,
     scoped_exact_value_result,
 )
+from src.adapters.generic_adapter import GenericAdapter
 
 
 class HierarchyParsingTests(unittest.TestCase):
@@ -58,6 +59,34 @@ class HierarchyParsingTests(unittest.TestCase):
 
 
 class ScopedLabelAssertionTests(unittest.TestCase):
+    def test_structural_target_does_not_match_single_character_ocr(self):
+        adapter=GenericAdapter()
+        obs={'ocr':[
+            {'text':'M','confidence':.99,'bounds':[220,47,271,78]},
+        ],'nodes':[]}
+        self.assertIsNone(adapter.ground_target(
+            'first restaurant item',obs))
+
+    def test_hierarchy_free_first_item_starts_below_dense_controls(self):
+        png=(b'\x89PNG\r\n\x1a\n'+b'\x00'*8+
+             struct.pack('>II',1080,2340))
+        obs={'png':png,'nodes':[],'ocr':[
+            {'text':'Restaurants','confidence':.99,
+             'bounds':[40,650,320,730]},
+            {'text':'Filters','confidence':.99,'bounds':[40,850,220,930]},
+            {'text':'Cuisines','confidence':.99,'bounds':[250,850,470,930]},
+            {'text':'Offers','confidence':.99,'bounds':[500,850,650,930]},
+            {'text':'Vendor One','confidence':.99,
+             'bounds':[40,1050,400,1130]},
+        ]}
+        bounds=assertion_crop_bounds(obs,{
+            'capability':'assert_contains','target':'first restaurant item',
+            'value':'Ad',
+        })
+        self.assertGreater(bounds[1],930)
+        self.assertEqual([0,1080],[bounds[0],bounds[2]])
+        self.assertGreater(bounds[3]-bounds[1],500)
+
     def test_generic_first_item_label_is_scoped_and_resolved(self):
         png=(b'\x89PNG\r\n\x1a\n'+b'\x00'*8+
              struct.pack('>II',1080,2340))

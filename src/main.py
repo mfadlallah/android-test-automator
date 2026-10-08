@@ -289,6 +289,13 @@ class Device:
                         'Foreground package: '+foreground_package)
                 nodes = parse_nodes(
                     xml,self.package,foreground_package=foreground_package)
+                xml_packages=sorted(set(re.findall(
+                    r'\bpackage="([^"]*)"',xml)))
+                parse_msg=(
+                    f'Parsed nodes: {len(nodes)}; XML node elements: '
+                    f'{xml.count("<node")}; XML packages: {xml_packages}')
+                diagnostics.append(parse_msg)
+                print('DEBUG '+parse_msg,flush=True)
                 break
             except (Blocked, ET.ParseError,
                     subprocess.TimeoutExpired) as exc:

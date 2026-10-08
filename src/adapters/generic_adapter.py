@@ -8,6 +8,7 @@ Instead, it relies on:
 - Generic accessibility hierarchy + OCR grounding
 """
 
+import re
 import struct
 from typing import Dict, Any, Optional, Set, Tuple, List
 from .base_adapter import DomainAdapter, BoundingBox
@@ -54,7 +55,8 @@ class GenericAdapter(DomainAdapter):
         if not target:
             return None
 
-        target_lower = target.lower()
+        target_lower = self._normalize_text(target)
+        target_tokens = self._semantic_tokens(target)
 
         # Try exact OCR match first
         for row in observation.get('ocr', []):
@@ -64,28 +66,32 @@ class GenericAdapter(DomainAdapter):
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
-        # Try partial OCR match
+        # Try token-aware OCR match.  Never use reverse substring matching:
+        # a one-character status label such as "M" must not ground
+        # "first restaurant item" merely because that letter occurs in it.
         for row in observation.get('ocr', []):
-            ocr_text = ' '.join(row.get('text', '').split()).casefold()
-            if target_lower in ocr_text or ocr_text in target_lower:
+            ocr_text = self._normalize_text(row.get('text',''))
+            ocr_tokens = self._semantic_tokens(ocr_text)
+            if self._tokens_match(target_tokens,ocr_tokens):
                 bounds = row.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
         # Try accessibility hierarchy
         for node in observation.get('nodes', []):
-            node_text = (node.get('text', '') or '').lower()
-            node_desc = (node.get('description', '') or '').lower()
+            node_text = self._normalize_text(node.get('text',''))
+            node_desc = self._normalize_text(node.get('description',''))
 
             if node_text == target_lower or node_desc == target_lower:
                 bounds = node.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
-        # Try partial hierarchy match
+        # Try token-aware hierarchy match.
         for node in observation.get('nodes', []):
-            node_text = (node.get('text', '') or '').lower()
-            if target_lower in node_text:
+            node_tokens = self._semantic_tokens(
+                str(node.get('text',''))+' '+str(node.get('description','')))
+            if self._tokens_match(target_tokens,node_tokens):
                 bounds = node.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
@@ -178,16 +184,16 @@ class GenericAdapter(DomainAdapter):
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
             print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
-            # Fallback: use semantic detection to find the target region
-            semantic_bounds = self._ground_assertion_target(target, observation, step)
-            if semantic_bounds:
-                return semantic_bounds
-            # Ultimate fallback: use full screen width, top portion for first item
+            # A phrase such as "first product item" is structural intent, not
+            # a literal visible label.  Estimate the first content row from
+            # OCR layout instead of matching arbitrary substrings on screen.
             png = observation.get('png', b'')
             if len(png) >= 24:
                 width, height = struct.unpack('>II', png[16:24])
-                # Estimate first item in top third of screen
-                return BoundingBox(0, int(height * 0.15), width, int(height * 0.35))
+                estimated=self._estimate_first_item_from_ocr(
+                    target,observation,(width,height))
+                if estimated:
+                    return BoundingBox(*estimated)
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
@@ -268,6 +274,96 @@ class GenericAdapter(DomainAdapter):
         return self.ground_target(target, observation) is not None
 
     # ============= Private Helper Methods =============
+
+    _STRUCTURAL_WORDS={
+        'first','item','items','card','cards','row','rows','result','results',
+        'list','container','section','visible','refreshed','vertical','horizontal',
+        'the','a','an','of','in','on','with','screen','view',
+    }
+
+    def _normalize_text(self,value: str) -> str:
+        return ' '.join(str(value or '').split()).casefold()
+
+    def _semantic_tokens(self,value: str) -> Set[str]:
+        normalized=re.sub(r'[^\w]+',' ',self._normalize_text(value),
+                          flags=re.UNICODE)
+        return {
+            token for token in normalized.split()
+            if len(token)>=2 and token not in self._STRUCTURAL_WORDS
+        }
+
+    def _tokens_match(self,expected: Set[str],observed: Set[str]) -> bool:
+        if not expected or not observed:
+            return False
+        return expected <= observed or (
+            len(expected)==1 and len(observed)==1 and
+            next(iter(expected)).rstrip('s')==next(iter(observed)).rstrip('s')
+        )
+
+    def _estimate_first_item_from_ocr(
+        self,
+        target: str,
+        observation: Dict[str,Any],
+        screenshot_dims: Tuple[int,int]
+    ) -> Optional[List[int]]:
+        """Estimate the first list item from generic OCR layout evidence.
+
+        The last dense horizontal OCR band below a semantic heading is treated
+        as the controls row.  The first content item begins below that band.
+        This is used only while accessibility hierarchy is unavailable.
+        """
+        width,height=screenshot_dims
+        rows=[]
+        for row in observation.get('ocr',[]):
+            bounds=row.get('bounds',[])
+            if (not isinstance(bounds,(list,tuple)) or len(bounds)!=4
+                    or row.get('confidence',0)<.55):
+                continue
+            x1,y1,x2,y2=bounds
+            if x2<=x1 or y2<=y1 or y2<height*.12 or y1>height*.72:
+                continue
+            rows.append(row)
+        if not rows:
+            return None
+
+        target_tokens=self._semantic_tokens(target)
+        anchors=[]
+        for row in rows:
+            observed=self._semantic_tokens(row.get('text',''))
+            if self._tokens_match(target_tokens,observed):
+                anchors.append(row)
+        anchor_bottom=max(
+            (row['bounds'][3] for row in anchors),default=round(height*.25))
+
+        # Group OCR rows into horizontal bands.  Multiple labels on the same
+        # band usually describe tabs, chips, filters, or other list controls.
+        bands=[]
+        for row in sorted(rows,key=lambda item:(
+                (item['bounds'][1]+item['bounds'][3])//2,item['bounds'][0])):
+            center=(row['bounds'][1]+row['bounds'][3])//2
+            for band in bands:
+                if abs(center-band['center'])<=max(36,height*.018):
+                    band['rows'].append(row)
+                    centers=[(item['bounds'][1]+item['bounds'][3])//2
+                             for item in band['rows']]
+                    band['center']=sum(centers)//len(centers)
+                    break
+            else:
+                bands.append({'center':center,'rows':[row]})
+
+        control_bottom=anchor_bottom
+        for band in bands:
+            band_bottom=max(row['bounds'][3] for row in band['rows'])
+            if (len(band['rows'])>=2 and band_bottom>anchor_bottom
+                    and band_bottom<=height*.58):
+                control_bottom=max(control_bottom,band_bottom)
+
+        start=max(round(height*.38),control_bottom+round(height*.015))
+        start=min(start,round(height*.62))
+        end=min(height, start+round(height*.32))
+        if end-start<120:
+            return None
+        return [0,start,width,end]
 
     def _extract_keywords(self, target: str) -> Set[str]:
         """
