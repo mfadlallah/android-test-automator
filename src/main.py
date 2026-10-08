@@ -95,26 +95,88 @@ def get_adapter_registry():
     return _adapter_registry
 
 def parse_nodes(xml, package):
+    """Parse nodes from UIAutomator XML hierarchy.
+
+    Accepts nodes that:
+    - Have the exact app package, OR
+    - Have empty/inherited package (from parent), OR
+    - Are from the foreground activity (may differ from launcher package)
+
+    Filters out system packages and unrelated apps.
+    Returns empty list (not exception) if no usable nodes found.
+    """
     root = ET.fromstring(xml)
     nodes = []
-    def walk(e, parent=None):
+
+    # Get foreground activity to accept nodes from it
+    foreground_package = None
+    try:
+        import subprocess
+        result = subprocess.run(['adb', 'shell', 'dumpsys', 'activity', 'top'],
+                              capture_output=True, timeout=5, text=True)
+        for line in result.stdout.split('\n'):
+            if 'ACTIVITY' in line or 'mCurrentFocus' in line:
+                # Extract package from "com.package/Activity"
+                match = re.search(r'(\S+)/(\S+)', line)
+                if match:
+                    foreground_package = match.group(1)
+                    break
+    except Exception:
+        pass  # Fall back to just using app package
+
+    def walk(e, parent_pkg=None):
         a = e.attrib
-        current = parent
+        current = parent = None
         bounds = list(map(int, re.findall(r'\d+', a.get('bounds', ''))))
-        if a.get('package') == package and len(bounds) == 4:
-            x1,y1,x2,y2 = bounds
-            if x2 > x1 and y2 > y1:
-                current = len(nodes)
-                nodes.append(dict(node=current, parent=parent, text=a.get('text',''),
-                    description=a.get('content-desc',''), resource_id=a.get('resource-id',''),
-                    bounds=bounds, clickable=a.get('clickable')=='true',
-                    scrollable=a.get('scrollable')=='true', enabled=a.get('enabled')=='true',
-                    selected=a.get('selected')=='true',
-                    checked=a.get('checked')=='true',
-                    class_name=a.get('class','')))
-        for child in e: walk(child,current)
+
+        if len(bounds) != 4:
+            for child in e: walk(child, parent_pkg)
+            return
+
+        x1, y1, x2, y2 = bounds
+        if not (x2 > x1 and y2 > y1):
+            for child in e: walk(child, parent_pkg)
+            return
+
+        # Resolve package: explicit, inherited from parent, or skip system packages
+        node_pkg = a.get('package', '').strip()
+        if not node_pkg:
+            node_pkg = parent_pkg
+
+        # Accept if: exact app package, foreground package, or empty/inherited
+        accept_pkg = (
+            node_pkg == package or
+            (foreground_package and node_pkg == foreground_package) or
+            (not node_pkg and parent_pkg == package)  # Inherited from app package parent
+        )
+
+        # Reject known system packages
+        system_pkgs = {'android', 'com.android', 'com.google', 'com.sec'}
+        if any(node_pkg.startswith(sp) for sp in system_pkgs):
+            accept_pkg = False
+
+        if accept_pkg:
+            current = len(nodes)
+            nodes.append(dict(
+                node=current, parent=parent,
+                text=a.get('text', ''),
+                description=a.get('content-desc', ''),
+                resource_id=a.get('resource-id', ''),
+                bounds=bounds,
+                clickable=a.get('clickable') == 'true',
+                scrollable=a.get('scrollable') == 'true',
+                enabled=a.get('enabled') == 'true',
+                selected=a.get('selected') == 'true',
+                checked=a.get('checked') == 'true',
+                class_name=a.get('class', ''),
+                package=node_pkg
+            ))
+
+        for child in e:
+            walk(child, node_pkg if accept_pkg else parent_pkg)
+
     walk(root)
-    if not nodes: raise Blocked('No app nodes found. Unlock device and keep the app foreground; dismiss system dialogs manually.')
+    # Return empty list instead of exception — observer handles empty gracefully
     return nodes
 
 class Device:
@@ -211,20 +273,33 @@ class Device:
         if not png.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10])):
             raise Blocked('Invalid device screenshot')
 
-        if nodes is None and not allow_screenshot_only:
-            log_path = stem.with_name(stem.name + '-dump-log.txt')
-            log_content = log_path.read_text(encoding='utf-8') if log_path.exists() else '(no log)'
-            print(f"DEBUG observe() failed after {max_attempts} attempts:\n{log_content}", flush=True)
-            raise Blocked(
-                f'Could not capture UI hierarchy after {max_attempts} attempts. '
-                'See ' + str(log_path)
-            )
+        # Handle cases where hierarchy is unavailable or empty
+        hierarchy_available = nodes is not None and len(nodes) > 0
 
-        if nodes is None:
-            nodes=[]
-            diagnostics.append(
-                'Continuing with screenshot/OCR fallback during a verified '
-                'post-action transition.')
+        if not hierarchy_available and not allow_screenshot_only:
+            # Only raise if we failed after multiple attempts (hierarchy dump failed)
+            # Don't raise if parse_nodes simply returned empty (XML valid but no matching nodes)
+            if nodes is None:
+                log_path = stem.with_name(stem.name + '-dump-log.txt')
+                log_content = log_path.read_text(encoding='utf-8') if log_path.exists() else '(no log)'
+                print(f"DEBUG observe() failed after {max_attempts} attempts:\n{log_content}", flush=True)
+                raise Blocked(
+                    f'Could not capture UI hierarchy after {max_attempts} attempts. '
+                    'See ' + str(log_path)
+                )
+
+        if not hierarchy_available:
+            nodes = []
+            if nodes is None:
+                # Hierarchy dump failed, not parse error
+                diagnostics.append(
+                    'Continuing with screenshot/OCR fallback during a verified '
+                    'post-action transition.')
+            else:
+                # Valid XML but no matching nodes (different activity/package)
+                diagnostics.append(
+                    'Valid XML but no nodes for app package; using screenshot/OCR. '
+                    'Likely on non-launcher activity with different package structure.')
             stem.with_name(stem.name + '-dump-log.txt').write_text(
                 '\n'.join(diagnostics), encoding='utf-8'
             )
