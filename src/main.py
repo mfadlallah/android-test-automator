@@ -164,16 +164,20 @@ class Device:
                 # Kill any stuck uiautomator process to prevent hanging
                 try:
                     self.adb('shell', 'pkill', '-f', 'uiautomator')
-                    time.sleep(0.5)
                 except Exception:
                     pass
+
+                # Wait for UIAutomator service to recover
+                # First attempt needs longer wait after back/recovery actions
+                wait_time = 2 if attempt == 1 else 0.5
+                time.sleep(wait_time)
 
                 # Remove any older dump so it cannot be read as a fresh screen.
                 self.adb('shell', 'rm', '-f', self.remote)
 
-                # Use compressed format for faster dumping on unresponsive devices
+                # Regular dump (--compressed may not be supported on all Android versions)
                 output = self.adb(
-                    'shell', 'uiautomator', 'dump', '--compressed', self.remote
+                    'shell', 'uiautomator', 'dump', self.remote
                 )
                 dump_msg = f'Attempt {attempt}: uiautomator dump output: {output.strip()}'
                 diagnostics.append(dump_msg)
@@ -186,16 +190,8 @@ class Device:
                 diagnostics.append(ls_msg)
                 print(f"DEBUG {ls_msg}", flush=True)
 
-                # Read the dump file (may be compressed with --compressed flag)
-                xml_bytes = self.adb('shell', 'cat', self.remote, binary=True)
-
-                # Handle gzip-compressed XML from --compressed flag
-                if xml_bytes.startswith(b'\x1f\x8b'):  # gzip magic number
-                    import gzip
-                    xml = gzip.decompress(xml_bytes).decode('utf-8', errors='replace')
-                else:
-                    xml = xml_bytes.decode('utf-8', errors='replace')
-
+                # Read the dump file
+                xml = self.adb('shell', 'cat', self.remote)
                 nodes = parse_nodes(xml, self.package)
                 break
             except (Blocked, ET.ParseError,
