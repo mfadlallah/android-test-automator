@@ -2358,10 +2358,20 @@ def ignore_ungrounded_optional_after_back(
     After recovery successfully closes an interruption (tap or back), the app
     may be in a transient state. If recovery detects another ungrounded optional
     claim on a stable screen immediately after, ignore it as likely false-positive.
+
+    EXCEPTION: If the recovery detected physical dimming evidence, the modal is real
+    and should NOT be ignored.
     """
     if recovery_action is None or assessment.get('kind')!='optional':
         return False
-    decision,_=recovery_action
+    decision, usage=recovery_action
+
+    # Check for dimming evidence - if modal is physically dimmed, it's real, don't ignore
+    dimming_evidence = usage.get('dimming_evidence', {})
+    if dimming_evidence.get('confirmed'):
+        print(f'DEBUG ignore_ungrounded: NOT ignoring - dimming evidence confirmed',flush=True)
+        return False
+
     if decision.get('action')!='blocked' or not any(
             decision.get('reason','').startswith(error)
             for error in GROUNDING_ERRORS):
