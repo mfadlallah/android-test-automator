@@ -238,7 +238,7 @@ class Device:
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
-    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None):
+    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None, screenshot_only=False):
         """Wait for UI layout to stabilize instead of fixed sleep.
 
         Observes screen twice with interval and checks if nodes/OCR are stable.
@@ -249,6 +249,8 @@ class Device:
         Args:
             target_bounds: Optional [x1, y1, x2, y2] to focus stability on region
                           (useful when animations exist outside target area)
+            screenshot_only: If True, use screenshot/OCR only (skip hierarchy dump).
+                           Use after recovery actions when UIAutomator is unresponsive.
         """
         stable_checks = 0
         required_checks = 1  # Reduced from 2 for faster convergence with animations
@@ -273,9 +275,9 @@ class Device:
         for attempt in range(1, int(max_wait / interval) + 1):
             try:
                 # Reuse last observation as obs1 if available (avoid redundant observe)
-                obs1 = last_obs if last_obs else self.observe(folder, index + 100 + attempt)
+                obs1 = last_obs if last_obs else self.observe(folder, index + 100 + attempt, allow_screenshot_only=screenshot_only)
                 time.sleep(interval)
-                obs2 = self.observe(folder, index + 200 + attempt)
+                obs2 = self.observe(folder, index + 200 + attempt, allow_screenshot_only=screenshot_only)
                 last_obs = obs2  # Cache for next iteration
 
                 # Filter to target region if specified
@@ -358,9 +360,9 @@ class Device:
         if action=='back':
             self.adb('shell','input','keyevent','4')
             # Wait for Back action to stabilize (dimmed sheet can leave
-            # accessibility temporarily unavailable; adaptive wait handles it)
+            # accessibility temporarily unavailable; use screenshot-only for stability)
             if self.artifact_folder:
-                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3)
+                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3, screenshot_only=True)
             else:
                 time.sleep(0.8)  # fallback
             return
