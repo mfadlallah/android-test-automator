@@ -3237,18 +3237,33 @@ def screenshot_only_after_recovery(history,previous,next_step=None):
                           'in_app_message_gate','unexpected_modal_back_gate'})
                      and action in {'tap','back'})
 
-    # If we just recovered, but the next step targets a stable screen,
-    # use full retries instead of screenshot-only
-    if recovery_action and next_step:
-        for keyword in stable_screens:
-            if keyword in next_target or keyword in next_step.get('hints',[]):
-                return False  # Use full retries for stable screens
+    # After recovery, use full retries (not screenshot-only) to capture
+    # hierarchy when available. Most assertions and actions after recovery
+    # need proper hierarchy for grounding.
+    if recovery_action:
+        # Check if next step is truly transient (generic navigation without
+        # specific targets). For anything involving assertions, scrolling, or
+        # list items, use full retries.
+        if next_step and next_capability in visual_safe:
+            # Check for stable screen keywords in target or hints
+            for keyword in stable_screens:
+                if (keyword in next_target or
+                    keyword in next_step.get('hints',[])):
+                    return False  # Use full retries for stable screens
 
-    # For truly transient states (generic navigation), use screenshot-only
+            # For assertions after recovery, use full retries to ensure
+            # we can capture hierarchy for grounding
+            if next_capability.startswith('assert_'):
+                return False  # Use full retries for assertions
+
+        # Only use screenshot-only after recovery for actual navigation actions
+        return False  # Default: use full retries after recovery
+
+    # For non-recovery transitions, use screenshot-only for speed
     content_transition=(
         action in {'tap','back','scroll','screen_scroll'}
         and next_capability in visual_safe)
-    return recovery_action or content_transition
+    return content_transition
 
 
 def fast_offer_probe_after_navigation(history,next_step):
