@@ -766,6 +766,42 @@ def assertion_evidence_error(step,result):
             if status=='failed' and negative:
                 return ('Negative contains assertion treated proven absence '
                         'as failure for: '+str(step.get('value','')))
+    if capability in {'assert_visible','assert_hidden'}:
+        statement=' '.join(
+            (result.get('reason','')+' '+result.get('evidence','')).split()
+        ).casefold()
+        hidden=bool(any(re.search(pattern,statement) for pattern in (
+            r'\b(?:not|no\s+longer)\s+(?:visible|shown|displayed|present)\b',
+            r'\b(?:hidden|absent|dismissed|closed|removed|disappeared)\b',
+            r'\bdoes\s+not\s+(?:appear|exist|remain)\b',
+        )))
+        explicitly_visible=bool(any(re.search(pattern,statement) for pattern in (
+            r'\b(?:is|remains|still)\s+(?:visible|shown|displayed|present|open)\b',
+            r'\bvisible\s+and\s+not\s+hidden\b',
+        )))
+        if capability=='assert_hidden':
+            if status=='passed' and (explicitly_visible or not hidden):
+                return ('Hidden assertion did not prove that the target is '
+                        'absent or closed: '+str(step.get('target','')))
+            if status=='failed' and hidden:
+                return ('Hidden assertion treated proven absence as failure: '+
+                        str(step.get('target','')))
+        elif capability=='assert_visible':
+            if status=='passed' and hidden:
+                return ('Visible assertion used hidden/absent evidence for: '+
+                        str(step.get('target','')))
+
+    if capability in {'wait_changed','assert_changed'} and status=='passed':
+        statement=' '.join(
+            (result.get('reason','')+' '+result.get('evidence','')).split()
+        ).casefold()
+        changed=bool(re.search(
+            r'\b(?:changed|updated|refreshed|reloaded|different|replaced|'
+            r'moved|new\s+(?:content|items?|results?)|loading\s+(?:finished|completed))\b',
+            statement))
+        if not changed:
+            return ('Change assertion pass did not describe an observed '
+                    'before/current change for: '+str(step.get('target','')))
     return None
 
 
@@ -1550,19 +1586,29 @@ def assess_plan_assertion(
         if attempt==0:
             if content:
                 messages.append({'role':'assistant','content':content})
+            repair=(
+                'Your assertion response failed evidence validation: '+
+                last_error+' Reinspect only the scoped target in the '
+                'CURRENT screenshot, including small or low-contrast '
+                'badges. If status is passed, explicitly name the target '
+                'and exact expected value in evidence. For a negative '
+                'assertion, explicitly state that the expected value is '
+                'absent from the visible scoped target. For a positive '
+                'contains assertion, never pass when the expected value '
+                'is absent, missing, or not present. Do not infer.')
+            if step.get('capability')=='assert_hidden':
+                repair+=(
+                    ' For assert_hidden, pass only if the target is absent, '
+                    'closed, dismissed, or not visible, and state that fact '
+                    'explicitly. If it remains visible/open, fail.')
+            if step.get('capability') in {'wait_changed','assert_changed'}:
+                repair+=(
+                    ' Compare BEFORE with CURRENT. Pass only after describing '
+                    'the observed changed, refreshed, replaced, or newly '
+                    'loaded content; visibility alone is insufficient.')
             messages.append({
                 'role':'user',
-                'content':(
-                    'Your assertion response failed evidence validation: '+
-                    last_error+' Reinspect only the scoped target in the '
-                    'CURRENT screenshot, including small or low-contrast '
-                    'badges. If status is passed, explicitly name the target '
-                    'and exact expected value in evidence. For a negative '
-                    'assertion, explicitly state that the expected value is '
-                    'absent from the visible scoped target. For a positive '
-                    'contains assertion, never pass when the expected value '
-                    'is absent, missing, or not present. Do not infer.'
-                ),
+                'content':repair,
             })
     save_crop_metadata(2,error=last_error,errors=validation_errors)
     raise Blocked(last_error)
@@ -3437,6 +3483,98 @@ SEQUENTIAL_CAPABILITIES={
     'assert_selected','assert_hidden','wait_changed',
 }
 
+ASSERTION_STEP_CAPABILITIES=frozenset({
+    *SEQUENTIAL_CAPABILITIES,'assert_changed','assert_scrolled',
+})
+
+
+def structured_step_results(plan,history,folder=None):
+    """Create one auditable terminal result for each completed plan step."""
+    completed={}
+    for record in history:
+        if not record.get('step_completed'):
+            continue
+        step=record.get('plan_step',{})
+        step_id=str(step.get('id',''))
+        if not step_id:
+            continue
+        decision=record.get('decision',{})
+        capability=step.get('capability','')
+        item={
+            'step_id':step_id,
+            'capability':capability,
+            'role':step.get('role',''),
+            'target':step.get('target',''),
+            'expected_value':step.get('value',''),
+            'status':'PASSED',
+            'action':decision.get('action',''),
+            'reason':decision.get('reason',''),
+            'evidence':decision.get('evidence',''),
+            'observation':record.get('observation'),
+            'source':record.get('usage',{}).get('source',''),
+        }
+        assertion_artifacts=(
+            set(LABEL_ASSERTION_CAPABILITIES) |
+            {'wait_changed','assert_changed'})
+        if folder and capability in assertion_artifacts:
+            observation=int(record.get('observation',0))
+            target=str(step.get('target',''))
+            prefix=(f'{observation:02d}-assertion-{capability}-'
+                    f'{target[:20]}').replace(' ','-')
+            prefix=re.sub(
+                r'[^A-Za-z0-9_-]+','-',prefix).strip('-')[:80]
+            for suffix,key in (
+                    ('.png','crop_artifact'),('.json','assertion_record')):
+                path=Path(folder)/(prefix+suffix)
+                if path.exists():
+                    item[key]=path.name
+        completed[step_id]=item
+    return [completed[str(step['id'])] for step in plan.get('steps',[])
+            if str(step.get('id')) in completed]
+
+
+def plan_completion_error(plan,history):
+    """Reject premature success or contradictory assertion evidence."""
+    results={item['step_id']:item
+             for item in structured_step_results(plan,history)}
+    required=[step for step in plan.get('steps',[])
+              if not step.get('optional',False)]
+    missing=[str(step.get('id')) for step in required
+             if str(step.get('id')) not in results]
+    if missing:
+        return 'Required plan steps were not recorded: '+', '.join(missing)
+    by_id={str(step.get('id')):step for step in plan.get('steps',[])}
+    for step_id,item in results.items():
+        step=by_id[step_id]
+        if step.get('capability') not in ASSERTION_STEP_CAPABILITIES:
+            continue
+        error=assertion_evidence_error(step,{
+            'status':'passed','reason':item['reason'],
+            'evidence':item['evidence'],
+        })
+        if error:
+            return 'Recorded assertion '+step_id+' is invalid: '+error
+    return None
+
+
+def step_result_summary(plan,history,folder=None):
+    results=structured_step_results(plan,history,folder)
+    assertions=[item for item in results
+                if item['capability'] in ASSERTION_STEP_CAPABILITIES]
+    key_assertions=[item['reason'] for item in assertions
+                    if item['capability'] in {
+                        'assert_contains','assert_not_contains'}]
+    return {
+        'steps_total':len(plan.get('steps',[])),
+        'steps_passed':len(results),
+        'assertions_total':sum(
+            step.get('capability') in ASSERTION_STEP_CAPABILITIES
+            for step in plan.get('steps',[])),
+        'assertions_passed':len(assertions),
+        'key_assertions':key_assertions,
+        'step_results':results,
+    }
+
 
 def stabilize_assertion_result(step,result,prior_waits,max_attempts=3):
     """Re-observe a non-passing assertion before making it terminal."""
@@ -3504,9 +3642,23 @@ def run_sequential_plan(
     steps=plan['steps']
 
     def finish(status,reason,evidence=''):
+        if status=='PASSED':
+            completion_error=plan_completion_error(plan,history)
+            if completion_error:
+                status='BLOCKED'
+                reason='Premature pass rejected: '+completion_error
+                evidence=''
+        summary=step_result_summary(plan,history,folder)
+        (folder/'step-results.json').write_text(
+            json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
         detail=reason
         if evidence:
             detail+=' | Evidence: '+evidence
+        if status=='PASSED':
+            detail+=(' | Completed '+str(summary['steps_passed'])+'/'+
+                     str(summary['steps_total'])+' steps and '+
+                     str(summary['assertions_passed'])+'/'+
+                     str(summary['assertions_total'])+' assertions.')
         return status,detail,history,recovery.events
 
     for observation_index in range(max_steps):
@@ -3690,7 +3842,8 @@ def run_sequential_plan(
         (folder/f'{observation_index:02d}-assessment.json').write_text(
             json.dumps(assessment,ensure_ascii=False,indent=2),encoding='utf-8')
         record={'observation':observation_index,'plan_step':step,
-                'decision':decision,'usage':usage}
+                'decision':decision,'usage':usage,
+                'step_completed':bool(advance)}
         (folder/f'{observation_index:02d}-decision.json').write_text(
             json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
         print(f"[{observation_index+1}/{max_steps}] {decision['action']}: "
@@ -3971,6 +4124,8 @@ def main():
                     'recoveries':attempt_recoveries,
                     'artifacts':str(attempt_folder),
                 }
+                attempt_report.update(step_result_summary(
+                    plan,attempt_history,attempt_folder))
                 attempt_reports.append(attempt_report)
                 (attempt_folder/'result.json').write_text(
                     json.dumps(attempt_report,ensure_ascii=False,indent=2),
@@ -4004,12 +4159,21 @@ def main():
         'attempts_configured':args.attempts,
         'attempts_used':len(attempt_reports),
         'flaky':flaky,'attempts':attempt_reports}
+    report.update(step_result_summary(plan,history,folder) if plan else {
+        'steps_total':0,'steps_passed':0,'assertions_total':0,
+        'assertions_passed':0,'key_assertions':[],'step_results':[],
+    })
     if folder:
         try: (folder/'result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
         except OSError as e: print('Could not save report: '+str(e),file=sys.stderr)
     print(json.dumps({
         'status':status,'reason':reason,'flaky':flaky,
         'attempts_used':len(attempt_reports),
+        'steps_passed':report['steps_passed'],
+        'steps_total':report['steps_total'],
+        'assertions_passed':report['assertions_passed'],
+        'assertions_total':report['assertions_total'],
+        'key_assertions':report['key_assertions'],
         'artifacts':str(folder) if folder else None,
     },ensure_ascii=False,indent=2))
     return 0 if status in ('PASSED','OBSERVED') else 1

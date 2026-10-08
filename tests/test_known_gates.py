@@ -30,6 +30,7 @@ from src.main import (
     planned_modal_is_active,
     prior_recovery_dismissal,
     parse_layout_transition,
+    plan_completion_error,
     restaurants_modal_back_gate,
     restaurants_ready_for_layout,
     semantic_tap_decision,
@@ -39,6 +40,7 @@ from src.main import (
     scoped_exact_value_result,
     semantic_target_bounds,
     stabilize_assertion_result,
+    step_result_summary,
     unexpected_modal_back_gate,
 )
 
@@ -893,6 +895,78 @@ class KnownGateTests(unittest.TestCase):
             'evidence':'The exact Ad badge is visible in the first item.',
         }
         self.assertIsNone(assertion_evidence_error(step,contradiction))
+
+    def test_hidden_assertion_rejects_visible_not_hidden_pass(self):
+        step={
+            'capability':'assert_hidden','target':'Filters sheet','value':'',
+        }
+        contradiction={
+            'status':'passed',
+            'reason':'The Filters sheet is visible and not hidden.',
+            'evidence':'Filters sheet remains open.',
+        }
+        valid={
+            'status':'passed',
+            'reason':'The Filters sheet is closed.',
+            'evidence':'Filters sheet is no longer visible.',
+        }
+        self.assertIsNotNone(assertion_evidence_error(step,contradiction))
+        self.assertIsNone(assertion_evidence_error(step,valid))
+
+    def test_wait_changed_requires_before_current_change_evidence(self):
+        step={
+            'capability':'wait_changed','target':'product items','value':'',
+        }
+        visible_only={
+            'status':'passed','reason':'Product items are visible.',
+            'evidence':'The first product item is displayed.',
+        }
+        changed={
+            'status':'passed','reason':'Product items refreshed.',
+            'evidence':'CURRENT contains new items compared with BEFORE.',
+        }
+        self.assertIsNotNone(assertion_evidence_error(step,visible_only))
+        self.assertIsNone(assertion_evidence_error(step,changed))
+
+    def test_step_report_records_assertions_and_rejects_missing_steps(self):
+        plan={'steps':[
+            {'id':'open','capability':'tap','role':'action','target':'Catalog',
+             'value':'','optional':False},
+            {'id':'present','capability':'assert_contains','role':'assertion',
+             'target':'first product item','value':'Sponsored',
+             'optional':False},
+            {'id':'absent','capability':'assert_not_contains',
+             'role':'assertion','target':'first product item',
+             'value':'Sponsored','optional':False},
+        ]}
+        history=[
+            {'observation':0,'plan_step':plan['steps'][0],
+             'step_completed':True,
+             'decision':{'action':'tap','reason':'Open Catalog.',
+                         'evidence':'Catalog label grounded.'},
+             'usage':{'source':'navigation'}},
+            {'observation':1,'plan_step':plan['steps'][1],
+             'step_completed':True,
+             'decision':{'action':'step_pass',
+                         'reason':'first product item contains Sponsored.',
+                         'evidence':'Sponsored is visible in the first product item.'},
+             'usage':{'source':'assertion'}},
+        ]
+        summary=step_result_summary(plan,history)
+        self.assertEqual(2,summary['steps_passed'])
+        self.assertEqual(1,summary['assertions_passed'])
+        self.assertIn('contains Sponsored',summary['key_assertions'][0])
+        self.assertIn('absent',plan_completion_error(plan,history))
+
+        history.append({
+            'observation':2,'plan_step':plan['steps'][2],
+            'step_completed':True,
+            'decision':{'action':'step_pass',
+                        'reason':'first product item does not contain Sponsored.',
+                        'evidence':'Sponsored is absent from the first product item.'},
+            'usage':{'source':'assertion'},
+        })
+        self.assertIsNone(plan_completion_error(plan,history))
 
     def test_exact_scoped_ocr_passes_positive_contains_without_ai(self):
         step={
