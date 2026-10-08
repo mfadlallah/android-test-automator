@@ -282,18 +282,21 @@ class Device:
                     stable_checks += 1
                     if stable_checks >= required_checks:
                         elapsed = time_module.time() - start_time
-                        print(f"✅ Stability achieved in {elapsed:.1f}s (nodes: {len(nodes2)}, ocr: {len(ocr2)})")
+                        print(f"✅ Stability achieved in {elapsed:.1f}s (nodes: {len(nodes2)}, ocr: {len(ocr2)})", flush=True)
                         return obs2
                 else:
                     stable_checks = 0
 
             except (Blocked, Exception) as e:
-                pass
+                # Log errors during stability check instead of silent pass
+                import traceback
+                print(f"DEBUG wait_for_stability error on attempt {attempt}: {type(e).__name__}: {str(e)}")
+                traceback.print_exc()
 
             time.sleep(interval)
 
         elapsed = time_module.time() - start_time
-        print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.")
+        print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.", flush=True)
         return self.observe(folder, index)
 
     def _nodes_structurally_similar(self, nodes1, nodes2, similarity_threshold=0.85):
