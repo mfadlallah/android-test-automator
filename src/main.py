@@ -3304,21 +3304,12 @@ def run_sequential_plan(
         if shutil.disk_usage(folder).free<100*1024*1024:
             raise Blocked('Less than 100 MB disk space remains')
         next_step=steps[step_index] if step_index<len(steps) else None
-        fast_offer=None
-        if fast_offer_probe_after_navigation(history,next_step):
-            obs=device.observe_screenshot_only(folder,observation_index)
-            obs['ocr']=read_screen_ocr(obs)
-            fast_offer=hour_offer_gate(obs,history)
-            if fast_offer is None:
-                # It may be an address sheet, Braze dialog, or another
-                # interruption. Restore the complete safe recovery path.
-                obs=device.observe(folder,observation_index,False)
-                obs['ocr']=read_screen_ocr(obs)
-        else:
-            allow_screenshot=screenshot_only_after_recovery(
-                history,previous,next_step)
-            obs=device.observe(folder,observation_index,allow_screenshot)
-            obs['ocr']=read_screen_ocr(obs)
+        # Skip fast offer probe; rely on generic unexpected_modal_back_gate
+        # which uses dimming detection instead of fragile OCR text matching.
+        allow_screenshot=screenshot_only_after_recovery(
+            history,previous,next_step)
+        obs=device.observe(folder,observation_index,allow_screenshot)
+        obs['ocr']=read_screen_ocr(obs)
         if step_index>=len(steps):
             return finish('PASSED','All structured plan steps passed.',
                           history[-1]['decision'].get('evidence',''))
@@ -3342,7 +3333,6 @@ def run_sequential_plan(
         elif capability=='recover_optional':
             known=(fast_offer or
                    delivery_address_gate(obs,history) or
-                   hour_offer_gate(obs,history) or
                    in_app_message_gate(obs,history) or
                    unexpected_modal_back_gate(
                        obs,history,plan,step_index))
@@ -3583,7 +3573,6 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
             known_action=None
             if not obs.get('hierarchy_unavailable'):
                 known_action=(delivery_address_gate(obs,history) or
-                              hour_offer_gate(obs,history) or
                               in_app_message_gate(obs,history) or
                               unexpected_modal_back_gate(obs,history,plan,-1))
         if not screenshot_scroll_in_progress and known_action is not None:
