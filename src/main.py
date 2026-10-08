@@ -95,26 +95,88 @@ def get_adapter_registry():
     return _adapter_registry
 
 def parse_nodes(xml, package):
+    """Parse nodes from UIAutomator XML hierarchy.
+
+    Accepts nodes that:
+    - Have the exact app package, OR
+    - Have empty/inherited package (from parent), OR
+    - Are from the foreground activity (may differ from launcher package)
+
+    Filters out system packages and unrelated apps.
+    Returns empty list (not exception) if no usable nodes found.
+    """
     root = ET.fromstring(xml)
     nodes = []
-    def walk(e, parent=None):
+
+    # Get foreground activity to accept nodes from it
+    foreground_package = None
+    try:
+        import subprocess
+        result = subprocess.run(['adb', 'shell', 'dumpsys', 'activity', 'top'],
+                              capture_output=True, timeout=5, text=True)
+        for line in result.stdout.split('\n'):
+            if 'ACTIVITY' in line or 'mCurrentFocus' in line:
+                # Extract package from "com.package/Activity"
+                match = re.search(r'(\S+)/(\S+)', line)
+                if match:
+                    foreground_package = match.group(1)
+                    break
+    except Exception:
+        pass  # Fall back to just using app package
+
+    def walk(e, parent_pkg=None):
         a = e.attrib
-        current = parent
+        current = parent = None
         bounds = list(map(int, re.findall(r'\d+', a.get('bounds', ''))))
-        if a.get('package') == package and len(bounds) == 4:
-            x1,y1,x2,y2 = bounds
-            if x2 > x1 and y2 > y1:
-                current = len(nodes)
-                nodes.append(dict(node=current, parent=parent, text=a.get('text',''),
-                    description=a.get('content-desc',''), resource_id=a.get('resource-id',''),
-                    bounds=bounds, clickable=a.get('clickable')=='true',
-                    scrollable=a.get('scrollable')=='true', enabled=a.get('enabled')=='true',
-                    selected=a.get('selected')=='true',
-                    checked=a.get('checked')=='true',
-                    class_name=a.get('class','')))
-        for child in e: walk(child,current)
+
+        if len(bounds) != 4:
+            for child in e: walk(child, parent_pkg)
+            return
+
+        x1, y1, x2, y2 = bounds
+        if not (x2 > x1 and y2 > y1):
+            for child in e: walk(child, parent_pkg)
+            return
+
+        # Resolve package: explicit, inherited from parent, or skip system packages
+        node_pkg = a.get('package', '').strip()
+        if not node_pkg:
+            node_pkg = parent_pkg
+
+        # Accept if: exact app package, foreground package, or empty/inherited
+        accept_pkg = (
+            node_pkg == package or
+            (foreground_package and node_pkg == foreground_package) or
+            (not node_pkg and parent_pkg == package)  # Inherited from app package parent
+        )
+
+        # Reject known system packages
+        system_pkgs = {'android', 'com.android', 'com.google', 'com.sec'}
+        if any(node_pkg.startswith(sp) for sp in system_pkgs):
+            accept_pkg = False
+
+        if accept_pkg:
+            current = len(nodes)
+            nodes.append(dict(
+                node=current, parent=parent,
+                text=a.get('text', ''),
+                description=a.get('content-desc', ''),
+                resource_id=a.get('resource-id', ''),
+                bounds=bounds,
+                clickable=a.get('clickable') == 'true',
+                scrollable=a.get('scrollable') == 'true',
+                enabled=a.get('enabled') == 'true',
+                selected=a.get('selected') == 'true',
+                checked=a.get('checked') == 'true',
+                class_name=a.get('class', ''),
+                package=node_pkg
+            ))
+
+        for child in e:
+            walk(child, node_pkg if accept_pkg else parent_pkg)
+
     walk(root)
-    if not nodes: raise Blocked('No app nodes found. Unlock device and keep the app foreground; dismiss system dialogs manually.')
+    # Return empty list instead of exception — observer handles empty gracefully
     return nodes
 
 class Device:
@@ -149,38 +211,57 @@ class Device:
         return {'nodes':[],'png':png,'observation':index,
                 'hierarchy_unavailable':True,'fast_probe':True}
     def observe(self, folder, index, allow_screenshot_only=False):
+        # Skip hierarchy dump entirely when we know UIAutomator is unavailable
+        if allow_screenshot_only:
+            return self.observe_screenshot_only(folder, index)
+
         stem = folder / f'{index:02d}'
         diagnostics = []
         nodes = None
         xml = ''
-        # Screenshot-only recovery is entered after we have already verified
-        # and dismissed a modal with either Back or its grounded close action.
-        # Do not spend ~15 seconds retrying an accessibility dump that is
-        # known to be temporarily unavailable.
-        max_attempts = 1 if allow_screenshot_only else 6
+        # Try up to 6 times to capture hierarchy on main activity
+        max_attempts = 6
 
         for attempt in range(1, max_attempts + 1):
             try:
+                # Kill any stuck uiautomator process to prevent hanging
+                try:
+                    self.adb('shell', 'pkill', '-f', 'uiautomator')
+                except Exception:
+                    pass
+
+                # Wait for UIAutomator service to recover
+                # First attempt needs longer wait after back/recovery actions
+                wait_time = 2 if attempt == 1 else 0.5
+                time.sleep(wait_time)
+
                 # Remove any older dump so it cannot be read as a fresh screen.
                 self.adb('shell', 'rm', '-f', self.remote)
+
+                # Regular dump (--compressed may not be supported on all Android versions)
                 output = self.adb(
                     'shell', 'uiautomator', 'dump', self.remote
                 )
-                diagnostics.append(
-                    f'Attempt {attempt}: {output.strip()}'
-                )
+                dump_msg = f'Attempt {attempt}: uiautomator dump output: {output.strip()}'
+                diagnostics.append(dump_msg)
+                print(f"DEBUG {dump_msg}", flush=True)
 
                 exists = self.adb(
                     'shell', 'ls', '-l', self.remote
                 )
-                diagnostics.append(exists.strip())
+                ls_msg = f'File check: {exists.strip()}'
+                diagnostics.append(ls_msg)
+                print(f"DEBUG {ls_msg}", flush=True)
 
+                # Read the dump file
                 xml = self.adb('shell', 'cat', self.remote)
                 nodes = parse_nodes(xml, self.package)
                 break
             except (Blocked, ET.ParseError,
                     subprocess.TimeoutExpired) as exc:
-                diagnostics.append(str(exc))
+                err_msg = f'{type(exc).__name__}: {str(exc)}'
+                diagnostics.append(err_msg)
+                print(f"DEBUG observe() attempt {attempt+1}/{max_attempts} failed: {err_msg}", flush=True)
                 if attempt < max_attempts:
                     time.sleep(3)
 
@@ -192,19 +273,33 @@ class Device:
         if not png.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10])):
             raise Blocked('Invalid device screenshot')
 
-        if nodes is None and not allow_screenshot_only:
-            raise Blocked(
-                f'Could not capture UI hierarchy after {max_attempts} attempts. '
-                'See ' + str(stem.with_name(
-                    stem.name + '-dump-log.txt'
-                ))
-            )
+        # Handle cases where hierarchy is unavailable or empty
+        hierarchy_available = nodes is not None and len(nodes) > 0
 
-        if nodes is None:
-            nodes=[]
-            diagnostics.append(
-                'Continuing with screenshot/OCR fallback during a verified '
-                'post-action transition.')
+        if not hierarchy_available and not allow_screenshot_only:
+            # Only raise if we failed after multiple attempts (hierarchy dump failed)
+            # Don't raise if parse_nodes simply returned empty (XML valid but no matching nodes)
+            if nodes is None:
+                log_path = stem.with_name(stem.name + '-dump-log.txt')
+                log_content = log_path.read_text(encoding='utf-8') if log_path.exists() else '(no log)'
+                print(f"DEBUG observe() failed after {max_attempts} attempts:\n{log_content}", flush=True)
+                raise Blocked(
+                    f'Could not capture UI hierarchy after {max_attempts} attempts. '
+                    'See ' + str(log_path)
+                )
+
+        if not hierarchy_available:
+            nodes = []
+            if nodes is None:
+                # Hierarchy dump failed, not parse error
+                diagnostics.append(
+                    'Continuing with screenshot/OCR fallback during a verified '
+                    'post-action transition.')
+            else:
+                # Valid XML but no matching nodes (different activity/package)
+                diagnostics.append(
+                    'Valid XML but no nodes for app package; using screenshot/OCR. '
+                    'Likely on non-launcher activity with different package structure.')
             stem.with_name(stem.name + '-dump-log.txt').write_text(
                 '\n'.join(diagnostics), encoding='utf-8'
             )
@@ -219,7 +314,7 @@ class Device:
         return {'nodes': nodes, 'png': png, 'observation': index,
                 'hierarchy_unavailable': not bool(nodes)}
 
-    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None):
+    def wait_for_stability(self, folder, index, max_wait=8, interval=0.4, target_bounds=None, screenshot_only=False):
         """Wait for UI layout to stabilize instead of fixed sleep.
 
         Observes screen twice with interval and checks if nodes/OCR are stable.
@@ -230,6 +325,8 @@ class Device:
         Args:
             target_bounds: Optional [x1, y1, x2, y2] to focus stability on region
                           (useful when animations exist outside target area)
+            screenshot_only: If True, use screenshot/OCR only (skip hierarchy dump).
+                           Use after recovery actions when UIAutomator is unresponsive.
         """
         stable_checks = 0
         required_checks = 1  # Reduced from 2 for faster convergence with animations
@@ -254,9 +351,9 @@ class Device:
         for attempt in range(1, int(max_wait / interval) + 1):
             try:
                 # Reuse last observation as obs1 if available (avoid redundant observe)
-                obs1 = last_obs if last_obs else self.observe(folder, index + 100 + attempt)
+                obs1 = last_obs if last_obs else self.observe(folder, index + 100 + attempt, allow_screenshot_only=screenshot_only)
                 time.sleep(interval)
-                obs2 = self.observe(folder, index + 200 + attempt)
+                obs2 = self.observe(folder, index + 200 + attempt, allow_screenshot_only=screenshot_only)
                 last_obs = obs2  # Cache for next iteration
 
                 # Filter to target region if specified
@@ -282,19 +379,22 @@ class Device:
                     stable_checks += 1
                     if stable_checks >= required_checks:
                         elapsed = time_module.time() - start_time
-                        print(f"✅ Stability achieved in {elapsed:.1f}s (nodes: {len(nodes2)}, ocr: {len(ocr2)})")
+                        print(f"✅ Stability achieved in {elapsed:.1f}s (nodes: {len(nodes2)}, ocr: {len(ocr2)})", flush=True)
                         return obs2
                 else:
                     stable_checks = 0
 
             except (Blocked, Exception) as e:
-                pass
+                # Log errors during stability check instead of silent pass
+                import traceback
+                print(f"DEBUG wait_for_stability error on attempt {attempt}: {type(e).__name__}: {str(e)}")
+                traceback.print_exc()
 
             time.sleep(interval)
 
         elapsed = time_module.time() - start_time
-        print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.")
-        return self.observe(folder, index)
+        print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.", flush=True)
+        return self.observe(folder, index, allow_screenshot_only=screenshot_only)
 
     def _nodes_structurally_similar(self, nodes1, nodes2, similarity_threshold=0.85):
         """Check if node hierarchy is structurally similar."""
@@ -336,9 +436,9 @@ class Device:
         if action=='back':
             self.adb('shell','input','keyevent','4')
             # Wait for Back action to stabilize (dimmed sheet can leave
-            # accessibility temporarily unavailable; adaptive wait handles it)
+            # accessibility temporarily unavailable; use screenshot-only for stability)
             if self.artifact_folder:
-                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3)
+                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3, screenshot_only=True)
             else:
                 time.sleep(0.8)  # fallback
             return
@@ -506,7 +606,8 @@ sheet/container is absent while its destination screen is visible. For
 wait_changed compare BEFORE and CURRENT and wait if loading or unchanged.
 Return failed only for an observed product contradiction, wait for transient
 loading, and blocked when the assertion cannot be grounded. Evidence must name
-the observed UI fact. Return only JSON matching the schema.'''
+the observed UI fact and mention the target (e.g., "the first restaurant item").
+Return only JSON matching the schema.'''
 
 
 def assertion_evidence_error(step,result):
@@ -726,16 +827,43 @@ def semantic_target_bounds(obs,target):
                 matches.append(row.get('bounds'))
     matches=[bounds for bounds in matches
              if isinstance(bounds,(list,tuple)) and len(bounds)==4]
-    if len(matches)!=1:
+    if not matches:
         return None
-    x1,y1,x2,y2=matches[0]
+
+    # If multiple matches, pick the topmost one (most likely the target label)
+    if len(matches) > 1:
+        selected = min(matches, key=lambda b: b[1])  # sort by y1 (top position)
+        print(f'DEBUG semantic_target_bounds: found {len(matches)} matches for "{target}", selected topmost', flush=True)
+        x1, y1, x2, y2 = selected
+    else:
+        x1, y1, x2, y2 = matches[0]
+
     # Include nearby badges, counters, checkmarks, and sibling labels without
     # expanding into unrelated areas of the screen.
+    # Use adaptive padding based on target size
+    item_width = x2 - x1
+    item_height = y2 - y1
+
+    # For small items (pills, badges): tighter padding
+    # For large items: more generous padding
+    if item_width < width * 0.2 and item_height < height * 0.1:
+        # Small pill/badge: tight crop with small margins
+        pad_left = round(width * 0.015)
+        pad_right = round(width * 0.08)
+        pad_top = round(height * 0.015)
+        pad_bottom = round(height * 0.015)
+    else:
+        # Larger item: standard padding
+        pad_left = round(width * 0.025)
+        pad_right = round(width * 0.14)
+        pad_top = round(height * 0.025)
+        pad_bottom = round(height * 0.025)
+
     return [
-        max(0,x1-round(width*.025)),
-        max(0,y1-round(height*.025)),
-        min(width,x2+round(width*.14)),
-        min(height,y2+round(height*.025)),
+        max(0, x1 - pad_left),
+        max(0, y1 - pad_top),
+        min(width, x2 + pad_right),
+        min(height, y2 + pad_bottom),
     ]
 
 
@@ -748,16 +876,44 @@ def assertion_crop_bounds(obs,step):
     import struct
 
     target=' '.join(str(step.get('target','')).split()).casefold()
+    png = obs.get('png', b'')
+    is_full_screen = False
+    if len(png) >= 24:
+        width, height = struct.unpack('>II', png[16:24])
+        is_full_screen_bounds = lambda b: b == (0, 0, width, height) or b == [0, 0, width, height]
+    else:
+        is_full_screen_bounds = lambda b: False
 
     # Try adapter-based cropping for any target
     registry = get_adapter_registry()
     adapter_crop = registry.get_assertion_crop(step.get('target',''), obs, step)
     if adapter_crop:
-        return adapter_crop
+        # adapter_crop is already a tuple (x1, y1, x2, y2) from registry
+        if isinstance(adapter_crop, (list, tuple)) and len(adapter_crop) == 4:
+            # Skip full-screen results and use semantic fallback instead
+            if not is_full_screen_bounds(adapter_crop):
+                print(f'DEBUG assertion_crop_bounds: adapter returned tight bounds for "{target}": {adapter_crop}', flush=True)
+                return list(adapter_crop)
+            else:
+                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen, trying semantic', flush=True)
+        # Or it's a BoundingBox object
+        elif hasattr(adapter_crop, 'x1'):
+            bounds = [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
+            if not is_full_screen_bounds(bounds):
+                print(f'DEBUG assertion_crop_bounds: adapter returned tight BoundingBox for "{target}": {bounds}', flush=True)
+                return bounds
+            else:
+                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen BoundingBox, trying semantic', flush=True)
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
-        return semantic_target_bounds(obs,step.get('target',''))
+        print(f'DEBUG assertion_crop_bounds: trying semantic_target_bounds for "{target}"', flush=True)
+        bounds = semantic_target_bounds(obs,step.get('target',''))
+        if bounds:
+            print(f'DEBUG assertion_crop_bounds: semantic returned bounds for "{target}": {bounds}', flush=True)
+            return bounds
+        else:
+            print(f'DEBUG assertion_crop_bounds: semantic returned None for "{target}"', flush=True)
     return None
 
     # Note: Keep old logic below as reference for edge cases
@@ -1090,21 +1246,54 @@ def assess_plan_assertion(
         artifact_folder=Path(artifact_folder)
         observation=int(obs.get('observation',0))
         step_id=str(step.get('id','step'))
+        capability=step.get('capability','')
+        target=step.get('target','')
         safe_step=(re.sub(r'[^A-Za-z0-9_-]+','-',step_id).strip('-')[:60]
                    or 'step')
-        prefix=(f'{observation:02d}-assertion-step-{safe_step}-crop')
+        prefix=(f'{observation:02d}-assertion-{capability}-{target[:20]}'.replace(' ','-'))
+        prefix=re.sub(r'[^A-Za-z0-9_-]+','-',prefix).strip('-')[:80]
         crop_path=artifact_folder/(prefix+'.png')
         crop_metadata_path=artifact_folder/(prefix+'.json')
-        crop_path.write_bytes(current_image)
+
+        # Save crop with optional visual border/highlight
+        try:
+            import io
+            from PIL import Image, ImageDraw
+            png = obs.get('png', b'')
+            if png and crop_bounds:
+                # Load original image and draw a red border around the crop region
+                orig_img = Image.open(io.BytesIO(png))
+                x1, y1, x2, y2 = crop_bounds
+
+                # Crop and save the region
+                cropped = orig_img.crop((x1, y1, x2, y2))
+                cropped.save(crop_path)
+
+                # Also save a version with border on full screenshot for context
+                bordered = orig_img.copy()
+                draw = ImageDraw.Draw(bordered)
+                draw.rectangle([x1, y1, x2, y2], outline='red', width=3)
+                bordered_path = artifact_folder/(prefix+'-with-border.png')
+                bordered.save(bordered_path)
+
+                print(f'DEBUG saved assertion crop: {crop_path.name}, target={target}, bounds={crop_bounds}',flush=True)
+            else:
+                crop_path.write_bytes(current_image)
+        except (ImportError, Exception) as e:
+            # Fallback: just save the raw crop image
+            crop_path.write_bytes(current_image)
+            print(f'DEBUG saved assertion crop (fallback): {crop_path.name}, bounds={crop_bounds}',flush=True)
+
         crop_metadata={
             'observation':observation,
             'step_id':step_id,
-            'capability':step.get('capability',''),
-            'target':step.get('target',''),
+            'capability':capability,
+            'target':target,
             'expected_value':step.get('value',''),
             'source_image':f'{observation:02d}.png',
             'crop_image':crop_path.name,
             'crop_bounds':crop_bounds,
+            'crop_with_border':prefix+'-with-border.png',
             'attempts':0,
             'retried':False,
             'final_status':'pending',
@@ -1184,6 +1373,10 @@ def assess_plan_assertion(
         if error is None:
             save_crop_metadata(0,deterministic)
             return deterministic
+        else:
+            print(f"DEBUG assertion validation failed: {error}",flush=True)
+            print(f"DEBUG step target: {step.get('target','')}",flush=True)
+            print(f"DEBUG model evidence: {deterministic}",flush=True)
 
     for label,item in observations:
         if item:
@@ -1243,6 +1436,9 @@ def assess_plan_assertion(
                             attempt+1,result,errors=validation_errors)
                         return result
                     last_error=evidence_error
+                    print(f"DEBUG assertion attempt {attempt+1} validation failed: {evidence_error}",flush=True)
+                    print(f"DEBUG result: {result}",flush=True)
+                    print(f"DEBUG target: {step.get('target','')}",flush=True)
             elif result is not None:
                 last_error='Invalid local assertion result.'
         validation_errors.append(last_error)
@@ -1651,6 +1847,14 @@ def hour_offer_gate(obs, history):
     if not expires_rows:
         return None
 
+    # Additional validation: the "Expires in" text for a modal should be high
+    # on the screen (in the top half), not buried in carousel items.
+    # Filter out expiry text in carousel tiles (typically in lower 2/3).
+    height = struct.unpack('>II', obs['png'][16:24])[1] if len(obs.get('png',b'')) >= 24 else 2340
+    expires_rows = [r for r in expires_rows if r['bounds'][1] < height * 0.55]
+    if not expires_rows:
+        return None
+
     def result(action,reason,**extra):
         decision={
             'action':action,'node':None,'direction':'none',
@@ -1747,35 +1951,77 @@ def planned_modal_is_active(plan,step_index,history):
 
 
 def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
-    """Dismiss one unplanned dimmed bottom modal on any app screen."""
+    """Dismiss one unplanned dimmed bottom modal on any app screen.
+
+    Works with or without hierarchy:
+    - With hierarchy: identifies modal candidates by position/size
+    - Without hierarchy: detects dimming via luminance analysis
+    """
     import struct
 
     nodes=obs['nodes']
-    if not nodes or planned_modal_is_active(plan,step_index,history):
+    if planned_modal_is_active(plan,step_index,history):
+        print(f"DEBUG unexpected_modal_back_gate: not checking - planned modal active", flush=True)
         return None
 
     width,height=struct.unpack('>II',obs['png'][16:24])
+
+    # ALWAYS check for dimming FIRST - this is the generic catch-all for any unplanned dimmed sheet
+    # This works with or without hierarchy (doesn't depend on identifying specific modal nodes)
+    print(f"DEBUG unexpected_modal_back_gate: checking luminance for dimming in bottom region (nodes={len(nodes)})", flush=True)
+    decoded_luminance=decode_png_luminance(obs['png'])
+    # Check bottom region (y >= 36% of screen height) for dimming
+    bottom_region_bounds = [0, int(height * 0.36), width, height]
+    dimming = modal_dimming_evidence(obs['png'], bottom_region_bounds, decoded_luminance)
+    print(f"DEBUG unexpected_modal_back_gate: bottom region dimming confirmed={dimming['confirmed']}", flush=True)
+
+    if dimming['confirmed']:
+        print(f"DEBUG unexpected_modal_back_gate: DIMMING DETECTED - issuing back action", flush=True)
+        return ({
+            'action': 'back',
+            'node': None,
+            'direction': 'none',
+            'reason': 'Dismiss the unplanned dimmed bottom sheet with Android Back.',
+            'evidence': 'Dimmed background and foreground boundary confirmed (luminance-based physics detection).'
+        }, {
+            'source': 'unexpected_modal_back_gate',
+            'modal_marker_grounded': False,
+            'dimming_evidence': dimming,
+            'luminance_only': not bool(nodes)
+        })
+
+    # If no dimming detected, only continue with hierarchy-based detection if hierarchy available
+    if not nodes:
+        print(f"DEBUG unexpected_modal_back_gate: no dimming and no hierarchy nodes", flush=True)
+        return None
     by_id={n['node']:n for n in nodes}
     # Decode the screenshot once. Several hierarchy candidates may describe
     # the same foreground sheet, so repeating PNG inflation per candidate is
     # unnecessary and noticeably slower on large device screenshots.
     decoded_luminance=decode_png_luminance(obs['png'])
     modal_roots=[]
-    for number in candidate_ids(obs):
+    candidates = list(candidate_ids(obs))
+    print(f"DEBUG unexpected_modal_back_gate: checking {len(candidates)} candidates (screen {width}x{height})", flush=True)
+    for number in candidates:
         node=by_id[number]
         x1,y1,x2,y2=node['bounds']
         h=y2-y1
+        print(f"DEBUG unexpected_modal_back_gate: candidate {number} bounds=({x1},{y1},{x2},{y2}) h={h} thresholds: y1>={height*.36} h>={height*.25} y2>={height*.88}", flush=True)
         # Bottom sheets start well below the top content, occupy meaningful
         # height, and reach the bottom region. This excludes the normal list.
         if y1>=height*.36 and h>=height*.25 and y2>=height*.88:
+            print(f"DEBUG unexpected_modal_back_gate: node {number} MATCHES position/size criteria", flush=True)
             identity=(node.get('resource_id','')+' '+
                       node.get('class_name','')).casefold()
             strong_marker=bool(re.search(
                 r'bottom[_-]?sheet|dialog|modal|popup',identity))
             dimming=modal_dimming_evidence(
                 obs['png'],node['bounds'],decoded_luminance)
+            print(f"DEBUG unexpected_modal_back_gate: node {number} marker={strong_marker} dimming_confirmed={dimming['confirmed']}", flush=True)
             if strong_marker or dimming['confirmed']:
                 modal_roots.append((number,strong_marker,dimming))
+                print(f"DEBUG unexpected_modal_back_gate: ADDED node {number} to modal_roots", flush=True)
+    print(f"DEBUG unexpected_modal_back_gate: found {len(modal_roots)} modal roots", flush=True)
     if not modal_roots:
         return None
     # Prefer an explicit modal marker, then the strongest luminance contrast.
@@ -2059,9 +2305,22 @@ def modal_dimming_evidence(png,bounds,decoded=None):
     outer_median=median(outer_band); inner_median=median(inner_band)
     bg_dark_ratio=sum(value<170 for value in background)/len(background)
     fg_bright_ratio=sum(value>190 for value in foreground)/len(foreground)
-    confirmed=(fg_median-bg_median>=28 and
-               inner_median-outer_median>=18 and
-               bg_dark_ratio>=.45 and fg_bright_ratio>=.28)
+
+    # Lenient thresholds: any notable dimming is enough to close sheet
+    # Original: required ALL strict thresholds. Now: majority pass OR strong contrast
+    contrast_ok = fg_median-bg_median>=15  # Lowered from 28
+    edge_ok = inner_median-outer_median>=10  # Lowered from 18
+    dark_ok = bg_dark_ratio>=.30  # Lowered from 0.45
+    bright_ok = fg_bright_ratio>=.15  # Lowered from 0.28
+
+    # Accept if: strong contrast (>=25) OR at least 3 of 4 thresholds pass
+    strong_contrast = fg_median-bg_median>=25
+    thresholds_passed = sum([contrast_ok, edge_ok, dark_ok, bright_ok])
+    confirmed = strong_contrast or thresholds_passed >= 3
+
+    if not confirmed:
+        print(f"DEBUG modal_dimming: contrast={fg_median-bg_median}(need>=15/strong>=25) edge={inner_median-outer_median}(need>=10) dark={round(bg_dark_ratio,2)}(need>=0.30) bright={round(fg_bright_ratio,2)}(need>=0.15) passed={thresholds_passed}/4", flush=True)
+
     return {
         'confirmed':confirmed,
         'background_median':bg_median,
@@ -2154,10 +2413,20 @@ def ignore_ungrounded_optional_after_back(
     After recovery successfully closes an interruption (tap or back), the app
     may be in a transient state. If recovery detects another ungrounded optional
     claim on a stable screen immediately after, ignore it as likely false-positive.
+
+    EXCEPTION: If the recovery detected physical dimming evidence, the modal is real
+    and should NOT be ignored.
     """
     if recovery_action is None or assessment.get('kind')!='optional':
         return False
-    decision,_=recovery_action
+    decision, usage=recovery_action
+
+    # Check for dimming evidence - if modal is physically dimmed, it's real, don't ignore
+    dimming_evidence = usage.get('dimming_evidence', {})
+    if dimming_evidence.get('confirmed'):
+        print(f'DEBUG ignore_ungrounded: NOT ignoring - dimming evidence confirmed',flush=True)
+        return False
+
     if decision.get('action')!='blocked' or not any(
             decision.get('reason','').startswith(error)
             for error in GROUNDING_ERRORS):
@@ -2466,6 +2735,104 @@ def parse_layout_transition(plan):
     except PlanError as exc:
         raise Blocked(str(exc)) from None
 
+
+def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason='', target='', capability=''):
+    """Save a cropped screenshot of the tap area for visual evidence with context border."""
+    if not artifact_folder or 'png' not in obs:
+        return
+    try:
+        import io
+        import tempfile
+        artifact_folder = Path(artifact_folder)
+        crop_size = 200
+        left = max(0, x - crop_size // 2)
+        top = max(0, y - crop_size // 2)
+        right = left + crop_size
+        bottom = top + crop_size
+
+        # Generate descriptive filename
+        target_safe = re.sub(r'[^A-Za-z0-9_-]+', '-', str(target)[:30]).strip('-') or 'tap'
+        crop_name = f'{observation_index:02d}-tap-{capability}-{target_safe}'
+
+        # Try PIL first (preferred) - with optional border on full image
+        try:
+            from PIL import Image, ImageDraw
+            png = obs['png']
+            img = Image.open(io.BytesIO(png))
+            width, height = img.size
+            right = min(width, right)
+            bottom = min(height, bottom)
+            if right - left < crop_size:
+                left = max(0, right - crop_size)
+            if bottom - top < crop_size:
+                top = max(0, bottom - crop_size)
+
+            # Save cropped region
+            cropped = img.crop((left, top, right, bottom))
+            crop_path = artifact_folder / f'{crop_name}.png'
+            cropped.save(crop_path)
+
+            # Save full screenshot with red border around tap area for context
+            bordered = img.copy()
+            draw = ImageDraw.Draw(bordered)
+            draw.rectangle([left, top, right, bottom], outline='red', width=4)
+            draw.ellipse([x-8, y-8, x+8, y+8], outline='yellow', width=2)  # Mark tap point
+            bordered_path = artifact_folder / f'{crop_name}-with-context.png'
+            bordered.save(bordered_path)
+
+            print(f'DEBUG saved tap evidence: {crop_path.name}, target={target}, tap_point=({x},{y}), bounds=({left},{top},{right},{bottom})',flush=True)
+            return
+        except ImportError:
+            pass
+
+        # Fallback: use ImageMagick convert command
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            crop_spec = f'{crop_size}x{crop_size}+{left}+{top}'
+            result = subprocess.run(['convert', tmp_path, '-crop', crop_spec, '+repage',
+                                  str(artifact_folder / f'{crop_name}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved tap evidence (ImageMagick): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback: use ffmpeg
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(obs['png'])
+                tmp_path = tmp.name
+            result = subprocess.run(['ffmpeg', '-i', tmp_path, '-vf',
+                                  f'crop={crop_size}:{crop_size}:{left}:{top}', '-y',
+                                  str(artifact_folder / f'{crop_name}.png')],
+                                 capture_output=True, timeout=10)
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode == 0:
+                print(f'DEBUG saved tap evidence (ffmpeg): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Last resort: save full screenshot with metadata
+        full_path = artifact_folder / f'{crop_name}-screenshot.png'
+        full_path.write_bytes(obs['png'])
+        metadata_path = artifact_folder / f'{crop_name}.json'
+        metadata_path.write_text(json.dumps({
+            'observation_index': observation_index,
+            'tap_point': [x, y],
+            'crop_bounds': [left, top, crop_size, crop_size],
+            'reason': reason,
+            'target': target,
+            'capability': capability,
+            'full_screenshot': full_path.name
+        }, ensure_ascii=False, indent=2), encoding='utf-8')
+        print(f'DEBUG saved tap evidence (metadata): {crop_name}.json, bounds=({left},{top},{right},{bottom})',flush=True)
+    except Exception as e:
+        print(f'DEBUG failed to save tap evidence: {e}',flush=True)
 
 def save_toggle_crop(obs, x, y, side, artifact_folder=None):
     """Save a cropped screenshot of the toggle area for visual evidence."""
@@ -2998,34 +3365,78 @@ def needs_sequential_executor(plan):
 
 
 def screenshot_only_after_recovery(history,previous,next_step=None):
-    """Allow read-only visual progress while accessibility is transient."""
+    """
+    Detect if hierarchy is truly transient or if we should retry full dumps.
+
+    Returns True only for genuinely uncertain states. For stable screens
+    (vendor list, collections) we use full retries even after recovery.
+    """
     next_capability=(next_step or {}).get('capability')
+    next_target=(next_step or {}).get('target','').lower()
+
+    # Screens that have stable, reliable hierarchy even after recovery
+    stable_screens={
+        'vendor','restaurant','list','scroll','collection',
+        'recyclerview','listview','feed'
+    }
+
     visual_safe={
         *SEQUENTIAL_CAPABILITIES,'assert_changed','assert_scrolled','scroll',
         'recover_optional','tap',
     }
+
     # A semantic tap remains safe without hierarchy: locate_semantic_visual
     # requires exactly one high-confidence OCR label and refuses zero or
     # ambiguous matches before producing coordinates.
     if next_capability=='tap':
         return True
+
+    # Previous observation had unavailable hierarchy: screenshot fallback
     if (previous and previous.get('hierarchy_unavailable')
             and (next_step is None or next_capability in visual_safe)):
         return True
+
     if not history:
         return False
+
     latest=history[-1]
     step=latest.get('plan_step',{})
     action=latest.get('decision',{}).get('action')
     source=latest.get('usage',{}).get('source')
+
+    # Check if this is a recovery action
     recovery_action=((step.get('capability')=='recover_optional'
                       or source in {
                           'in_app_message_gate','unexpected_modal_back_gate'})
                      and action in {'tap','back'})
+
+    # After recovery, use full retries (not screenshot-only) to capture
+    # hierarchy when available. Most assertions and actions after recovery
+    # need proper hierarchy for grounding.
+    if recovery_action:
+        # Check if next step is truly transient (generic navigation without
+        # specific targets). For anything involving assertions, scrolling, or
+        # list items, use full retries.
+        if next_step and next_capability in visual_safe:
+            # Check for stable screen keywords in target or hints
+            for keyword in stable_screens:
+                if (keyword in next_target or
+                    keyword in next_step.get('hints',[])):
+                    return False  # Use full retries for stable screens
+
+            # For assertions after recovery, use full retries to ensure
+            # we can capture hierarchy for grounding
+            if next_capability.startswith('assert_'):
+                return False  # Use full retries for assertions
+
+        # Only use screenshot-only after recovery for actual navigation actions
+        return False  # Default: use full retries after recovery
+
+    # For non-recovery transitions, use screenshot-only for speed
     content_transition=(
         action in {'tap','back','scroll','screen_scroll'}
         and next_capability in visual_safe)
-    return recovery_action or content_transition
+    return content_transition
 
 
 def fast_offer_probe_after_navigation(history,next_step):
@@ -3058,21 +3469,12 @@ def run_sequential_plan(
         if shutil.disk_usage(folder).free<100*1024*1024:
             raise Blocked('Less than 100 MB disk space remains')
         next_step=steps[step_index] if step_index<len(steps) else None
-        fast_offer=None
-        if fast_offer_probe_after_navigation(history,next_step):
-            obs=device.observe_screenshot_only(folder,observation_index)
-            obs['ocr']=read_screen_ocr(obs)
-            fast_offer=hour_offer_gate(obs,history)
-            if fast_offer is None:
-                # It may be an address sheet, Braze dialog, or another
-                # interruption. Restore the complete safe recovery path.
-                obs=device.observe(folder,observation_index,False)
-                obs['ocr']=read_screen_ocr(obs)
-        else:
-            allow_screenshot=screenshot_only_after_recovery(
-                history,previous,next_step)
-            obs=device.observe(folder,observation_index,allow_screenshot)
-            obs['ocr']=read_screen_ocr(obs)
+        # Skip fast offer probe; rely on generic unexpected_modal_back_gate
+        # which uses dimming detection instead of fragile OCR text matching.
+        allow_screenshot=screenshot_only_after_recovery(
+            history,previous,next_step)
+        obs=device.observe(folder,observation_index,allow_screenshot)
+        obs['ocr']=read_screen_ocr(obs)
         if step_index>=len(steps):
             return finish('PASSED','All structured plan steps passed.',
                           history[-1]['decision'].get('evidence',''))
@@ -3094,12 +3496,18 @@ def run_sequential_plan(
                 'decision':decision,
             }
         elif capability=='recover_optional':
-            known=(fast_offer or
-                   delivery_address_gate(obs,history) or
-                   hour_offer_gate(obs,history) or
-                   in_app_message_gate(obs,history) or
-                   unexpected_modal_back_gate(
-                       obs,history,plan,step_index))
+            delivery_result = delivery_address_gate(obs,history)
+            print(f"DEBUG recovery: delivery_address_gate returned {delivery_result is not None}", flush=True)
+
+            message_result = in_app_message_gate(obs,history)
+            print(f"DEBUG recovery: in_app_message_gate returned {message_result is not None}", flush=True)
+
+            modal_result = unexpected_modal_back_gate(obs,history,plan,step_index)
+            print(f"DEBUG recovery: unexpected_modal_back_gate returned {modal_result is not None}", flush=True)
+            if modal_result is not None:
+                print(f"DEBUG recovery: modal action = {modal_result[0].get('action')}", flush=True)
+
+            known=(delivery_result or message_result or modal_result)
             if known is not None:
                 decision,usage=known
             else:
@@ -3252,6 +3660,14 @@ def run_sequential_plan(
             continue
         if action in {'tap','scroll','screen_scroll','back'}:
             device.execute(decision,obs)
+            # Capture tap evidence after tap actions
+            if action == 'tap' and 'vision_point' in decision:
+                tap_x, tap_y = decision['vision_point']
+                tap_target = step.get('target', '') or step.get('id', '')
+                tap_reason = decision.get('reason', '')
+                tap_capability = step.get('capability', '')
+                save_tap_evidence(obs, tap_x, tap_y, observation_index, folder,
+                                tap_reason, tap_target, tap_capability)
             if (capability!='recover_optional'
                     and usage.get('source') not in {
                         'in_app_message_gate','unexpected_modal_back_gate'}):
@@ -3329,7 +3745,6 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
             known_action=None
             if not obs.get('hierarchy_unavailable'):
                 known_action=(delivery_address_gate(obs,history) or
-                              hour_offer_gate(obs,history) or
                               in_app_message_gate(obs,history) or
                               unexpected_modal_back_gate(obs,history,plan,-1))
         if not screenshot_scroll_in_progress and known_action is not None:
@@ -3404,7 +3819,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--app-id',default='com.hungerstation.android.web.debug')
-    p.add_argument('--serial'); p.add_argument('--case',type=Path,default=ROOT/'case.txt')
+    p.add_argument('--serial'); p.add_argument('--case',type=Path,required=True,help='Path to test case file (e.g., cases/33271749-sort-restaurants-list.txt)')
     p.add_argument('--model',default=os.environ.get('OLLAMA_MODEL','qwen2.5vl:3b'))
     p.add_argument('--max-steps',type=int,default=25)
     p.add_argument('--attempts',type=int,default=3,

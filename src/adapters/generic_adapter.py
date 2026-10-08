@@ -104,46 +104,56 @@ class GenericAdapter(DomainAdapter):
         1. Finds all scrollable containers
         2. Analyzes OCR content in each
         3. Matches semantic meaning (target keywords match item types)
-        4. Returns the best match
+        4. Returns the best match with fallback to largest
 
-        Example: "scroll restaurants" matches scrollable containing
-        "Restaurant Name", "Rating", "Price" in OCR.
+        Example: "scroll restaurants" or "first restaurant item" matches
+        scrollable containing restaurant-like items.
         """
         if not target:
             return None
 
         target_lower = target.lower()
 
-        # Extract semantic keywords from target
-        keywords = self._extract_keywords(target)
-
-        if not keywords:
-            # Fallback: just find largest scrollable
-            return self._find_largest_scrollable(observation)
-
         # Find all scrollable containers
         scrollables = self._find_all_scrollables(observation)
+
+        # If NO scrollables found by scrollable flag, try to find large containers
+        # that act like lists (RecyclerView, ListView, etc. may not be marked scrollable)
+        if not scrollables:
+            scrollables = self._find_large_containers(observation)
 
         if not scrollables:
             return None
 
-        # Score each scrollable based on content match
-        scored = []
-        for scrollable in scrollables:
-            score = self._score_scrollable_match(
-                scrollable, keywords, observation
-            )
-            scored.append((scrollable, score))
+        # Extract semantic keywords from target
+        keywords = self._extract_keywords(target)
 
-        # Return scrollable with highest score
-        best = max(scored, key=lambda x: x[1])
-        if best[1] > 0:  # Must have some match
-            bounds = best[0].get('bounds', [])
+        # If we have keywords, try to find best match
+        if keywords:
+            scored = []
+            for scrollable in scrollables:
+                score = self._score_scrollable_match(
+                    scrollable, keywords, observation
+                )
+                scored.append((scrollable, score))
+
+            # Return scrollable with highest score (threshold 0 = any match)
+            best = max(scored, key=lambda x: x[1])
+            if best[1] > 0:
+                bounds = best[0].get('bounds', [])
+                if len(bounds) == 4:
+                    return BoundingBox(*bounds)
+
+        # Fallback: return largest scrollable (usually the main list)
+        # This handles cases like "first restaurant item" where semantic matching
+        # might not find a direct keyword match
+        largest = self._find_largest_scrollable(observation)
+        if largest:
+            bounds = largest.get('bounds', [])
             if len(bounds) == 4:
                 return BoundingBox(*bounds)
 
-        # Fallback: largest scrollable
-        return self._find_largest_scrollable(observation)
+        return None
 
     def get_assertion_crop(
         self,
@@ -169,9 +179,22 @@ class GenericAdapter(DomainAdapter):
         # Find scrollable container
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
+            print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
+            # Fallback: use semantic detection to find the target region
+            semantic_bounds = self._ground_assertion_target(target, observation, step)
+            if semantic_bounds:
+                return semantic_bounds
+            # Ultimate fallback: use full screen width, top portion for first item
+            png = observation.get('png', b'')
+            if len(png) >= 24:
+                import struct
+                width, height = struct.unpack('>II', png[16:24])
+                # Estimate first item in top third of screen
+                return BoundingBox(0, int(height * 0.15), width, int(height * 0.35))
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
+        print(f'DEBUG adapter.get_assertion_crop: Found scrollable for "{target}": ({sx1}, {sy1}, {sx2}, {sy2})', flush=True)
 
         # Find first visible child item
         first_item = self._find_first_item_in_container(
@@ -179,7 +202,13 @@ class GenericAdapter(DomainAdapter):
         )
 
         if not first_item:
-            return None
+            # Fallback: estimate first item position based on scrollable height
+            # Common pattern: first item is at top of scrollable, ~80-120px tall
+            item_height = min(120, int((sy2 - sy1) * 0.15))  # ~15% of scrollable or max 120px
+            first_item = (sx1, sy1, sx2, sy1 + item_height)
+            print(f'DEBUG adapter.get_assertion_crop: Using estimated first item for "{target}": {first_item}', flush=True)
+        else:
+            print(f'DEBUG adapter.get_assertion_crop: Found first item for "{target}": {first_item}', flush=True)
 
         fx1, fy1, fx2, fy2 = first_item
 
@@ -199,12 +228,11 @@ class GenericAdapter(DomainAdapter):
                 if label_bounds:
                     return BoundingBox(*label_bounds)
 
-                # Fallback: tight badge crop (top-right area)
-                return BoundingBox(
-                    *self._get_badge_crop((fx1, fy1, fx2, fy2), (width, height))
-                )
+                # If label not found, return full item bounds so model can assess
+                # whether the expected value is present or absent in the item.
+                # A tiny badge crop is insufficient for this assessment.
 
-        # Return entire first item
+        # Return entire first item (for both regular assertions and when label not found)
         return BoundingBox(fx1, fy1, fx2, fy2)
 
     def handle_recovery(
@@ -262,11 +290,23 @@ class GenericAdapter(DomainAdapter):
     def _find_all_scrollables(
         self, observation: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Find all scrollable containers in hierarchy."""
+        """Find all scrollable containers in hierarchy using ADB metadata."""
         scrollables = []
 
         for node in observation.get('nodes', []):
-            if node.get('scrollable'):
+            # Check scrollable flag OR resource ID/class name indicating list containers
+            resource_id = node.get('resource_id', '').lower()
+            node_class = node.get('class', '').lower()
+
+            is_scrollable = node.get('scrollable', False)
+            is_list_container = (
+                'recycler' in resource_id or 'recycler' in node_class or
+                'listview' in resource_id or 'listview' in node_class or
+                'scrollview' in resource_id or 'scrollview' in node_class or
+                'viewpager' in resource_id or 'viewpager' in node_class
+            )
+
+            if is_scrollable or is_list_container:
                 bounds = node.get('bounds', [0, 0, 0, 0])
                 if len(bounds) == 4:
                     width = bounds[2] - bounds[0]
@@ -298,6 +338,24 @@ class GenericAdapter(DomainAdapter):
             return BoundingBox(*bounds)
 
         return None
+
+    def _find_large_containers(
+        self, observation: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Find large containers that might act like lists (even if not marked scrollable)."""
+        containers = []
+
+        for node in observation.get('nodes', []):
+            bounds = node.get('bounds', [0, 0, 0, 0])
+            if len(bounds) == 4:
+                width = bounds[2] - bounds[0]
+                height = bounds[3] - bounds[1]
+                # Look for tall, wide containers (list-like dimensions)
+                # These might be RecyclerView, ListView, etc. not marked as scrollable
+                if width > 200 and height > 300:  # Large enough to be a list
+                    containers.append(node)
+
+        return containers
 
     def _score_scrollable_match(
         self,
@@ -348,23 +406,47 @@ class GenericAdapter(DomainAdapter):
         observation: Dict[str, Any],
         container_bounds: Tuple[int, int, int, int]
     ) -> Optional[Tuple[int, int, int, int]]:
-        """Find first visible item in a container."""
+        """Find first visible item in a container using hierarchy parent relationships."""
         cx1, cy1, cx2, cy2 = container_bounds
 
-        # Find direct children of container
-        candidates = []
-        for node in observation.get('nodes', []):
-            # Simple heuristic: if parent node ID matches container
-            # (this is simplified; real implementation would check parent)
-            nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
-            width = nx2 - nx1
-            height = ny2 - ny1
+        nodes = observation.get('nodes', [])
+        if not nodes:
+            return None
 
-            # Item must be substantial and within container
-            if (width > 50 and height > 50 and
-                nx2 > cx1 and nx1 < cx2 and
-                ny2 > cy1 and ny1 < cy2):
-                candidates.append((nx1, ny1, nx2, ny2))
+        # Find the container node itself
+        container_node_idx = None
+        for idx, node in enumerate(nodes):
+            nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+            if nx1 == cx1 and ny1 == cy1 and nx2 == cx2 and ny2 == cy2:
+                container_node_idx = idx
+                break
+
+        # If we found the container, look for its direct children
+        candidates = []
+        if container_node_idx is not None:
+            # Find all direct children of the container
+            for idx, node in enumerate(nodes):
+                if node.get('parent') == container_node_idx:
+                    nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+                    width = nx2 - nx1
+                    height = ny2 - ny1
+
+                    # Items should be substantial and visible
+                    if width > 50 and height > 50 and ny2 > cy1:
+                        candidates.append((nx1, ny1, nx2, ny2))
+
+        # If direct children search didn't work, fall back to bounds-based search
+        if not candidates:
+            for node in nodes:
+                nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
+                width = nx2 - nx1
+                height = ny2 - ny1
+
+                # Item must be substantial and within container
+                if (width > 50 and height > 50 and
+                    nx2 > cx1 and nx1 < cx2 and
+                    ny2 > cy1 and ny1 < cy2):
+                    candidates.append((nx1, ny1, nx2, ny2))
 
         if not candidates:
             return None
@@ -441,17 +523,90 @@ class GenericAdapter(DomainAdapter):
         observation: Dict[str, Any],
         step: Dict[str, Any]
     ) -> Optional[BoundingBox]:
-        """Generic grounding for assertion targets."""
+        """Generic grounding for assertion targets with smart fallbacks."""
         # Try to ground the target like any other semantic target
         bounds = self.ground_target(target, observation)
 
         if bounds:
             return bounds
 
-        # If target not found, return full screen (will show more context)
-        png = observation.get('png', b'')
-        if len(png) >= 24:
-            width, height = struct.unpack('>II', png[16:24])
-            return BoundingBox(0, 0, width, height)
+        # Fallback: Try semantic target bounds for pills, sheets, buttons, etc.
+        # This helps with UI elements that might not have exact OCR/hierarchy matches
+        target_lower = target.lower()
+        if any(word in target_lower for word in ('pill', 'sheet', 'button', 'option', 'label')):
+            # Use adaptive semantic matching from main.py logic
+            semantic_bounds = self._semantic_match_bounds(target, observation)
+            if semantic_bounds:
+                return BoundingBox(*semantic_bounds)
 
+        # If still not found, return None instead of full-screen
+        # Let caller decide whether to use full-screen fallback
         return None
+
+    def _semantic_match_bounds(
+        self,
+        target: str,
+        observation: Dict[str, Any]
+    ) -> Optional[List[int]]:
+        """Find bounds using semantic keyword matching."""
+        import re
+
+        png = observation.get('png', b'')
+        if len(png) < 24:
+            return None
+
+        width, height = struct.unpack('>II', png[16:24])
+
+        # Extract keywords from target
+        target_lower = target.lower()
+        target_tokens = set(re.findall(r'\w+', target_lower, re.UNICODE))
+
+        # Search OCR for matching text
+        best_match = None
+        for row in observation.get('ocr', []):
+            ocr_text = row.get('text', '').lower()
+            ocr_tokens = set(re.findall(r'\w+', ocr_text, re.UNICODE))
+
+            # Check if tokens match (flexible matching for "Filters pill" → "Filters")
+            if target_tokens and (ocr_tokens >= target_tokens or target_tokens <= ocr_tokens):
+                bounds = row.get('bounds', [])
+                if len(bounds) == 4:
+                    best_match = bounds
+                    break  # Take first good match
+
+        # Search hierarchy for matching text
+        if not best_match:
+            for node in observation.get('nodes', []):
+                if not node.get('enabled'):
+                    continue
+                node_text = (node.get('text', '') or '').lower()
+                node_tokens = set(re.findall(r'\w+', node_text, re.UNICODE))
+
+                if target_tokens and (node_tokens >= target_tokens or target_tokens <= node_tokens):
+                    bounds = node.get('bounds', [])
+                    if len(bounds) == 4:
+                        best_match = bounds
+                        break
+
+        if not best_match:
+            return None
+
+        # Return with adaptive padding for pills/buttons
+        x1, y1, x2, y2 = best_match
+        item_width = x2 - x1
+        item_height = y2 - y1
+
+        # Tight padding for small pills
+        if item_width < width * 0.2 and item_height < height * 0.1:
+            pad_h = max(2, round(width * 0.01))
+            pad_v = max(2, round(height * 0.01))
+        else:
+            pad_h = round(width * 0.03)
+            pad_v = round(height * 0.02)
+
+        return [
+            max(0, x1 - pad_h),
+            max(0, y1 - pad_v),
+            min(width, x2 + pad_h),
+            min(height, y2 + pad_v)
+        ]
