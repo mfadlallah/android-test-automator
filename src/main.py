@@ -1956,6 +1956,7 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
 
     nodes=obs['nodes']
     if not nodes or planned_modal_is_active(plan,step_index,history):
+        print(f"DEBUG unexpected_modal_back_gate: not checking - nodes empty or planned modal active", flush=True)
         return None
 
     width,height=struct.unpack('>II',obs['png'][16:24])
@@ -1965,21 +1966,28 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
     # unnecessary and noticeably slower on large device screenshots.
     decoded_luminance=decode_png_luminance(obs['png'])
     modal_roots=[]
-    for number in candidate_ids(obs):
+    candidates = list(candidate_ids(obs))
+    print(f"DEBUG unexpected_modal_back_gate: checking {len(candidates)} candidates (screen {width}x{height})", flush=True)
+    for number in candidates:
         node=by_id[number]
         x1,y1,x2,y2=node['bounds']
         h=y2-y1
+        print(f"DEBUG unexpected_modal_back_gate: candidate {number} bounds=({x1},{y1},{x2},{y2}) h={h} thresholds: y1>={height*.36} h>={height*.25} y2>={height*.88}", flush=True)
         # Bottom sheets start well below the top content, occupy meaningful
         # height, and reach the bottom region. This excludes the normal list.
         if y1>=height*.36 and h>=height*.25 and y2>=height*.88:
+            print(f"DEBUG unexpected_modal_back_gate: node {number} MATCHES position/size criteria", flush=True)
             identity=(node.get('resource_id','')+' '+
                       node.get('class_name','')).casefold()
             strong_marker=bool(re.search(
                 r'bottom[_-]?sheet|dialog|modal|popup',identity))
             dimming=modal_dimming_evidence(
                 obs['png'],node['bounds'],decoded_luminance)
+            print(f"DEBUG unexpected_modal_back_gate: node {number} marker={strong_marker} dimming_confirmed={dimming['confirmed']}", flush=True)
             if strong_marker or dimming['confirmed']:
                 modal_roots.append((number,strong_marker,dimming))
+                print(f"DEBUG unexpected_modal_back_gate: ADDED node {number} to modal_roots", flush=True)
+    print(f"DEBUG unexpected_modal_back_gate: found {len(modal_roots)} modal roots", flush=True)
     if not modal_roots:
         return None
     # Prefer an explicit modal marker, then the strongest luminance contrast.
