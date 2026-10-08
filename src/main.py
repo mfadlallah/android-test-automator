@@ -1966,28 +1966,33 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
 
     width,height=struct.unpack('>II',obs['png'][16:24])
 
-    # If no hierarchy available, try pure luminance-based dimming detection
-    if not nodes:
-        print(f"DEBUG unexpected_modal_back_gate: no nodes, checking luminance for dimming in bottom region", flush=True)
-        decoded_luminance=decode_png_luminance(obs['png'])
-        # Check bottom region (y >= 36% of screen height) for dimming
-        bottom_region_bounds = [0, int(height * 0.36), width, height]
-        dimming = modal_dimming_evidence(obs['png'], bottom_region_bounds, decoded_luminance)
-        print(f"DEBUG unexpected_modal_back_gate: bottom region dimming confirmed={dimming['confirmed']}", flush=True)
+    # ALWAYS check for dimming FIRST - this is the generic catch-all for any unplanned dimmed sheet
+    # This works with or without hierarchy (doesn't depend on identifying specific modal nodes)
+    print(f"DEBUG unexpected_modal_back_gate: checking luminance for dimming in bottom region (nodes={len(nodes)})", flush=True)
+    decoded_luminance=decode_png_luminance(obs['png'])
+    # Check bottom region (y >= 36% of screen height) for dimming
+    bottom_region_bounds = [0, int(height * 0.36), width, height]
+    dimming = modal_dimming_evidence(obs['png'], bottom_region_bounds, decoded_luminance)
+    print(f"DEBUG unexpected_modal_back_gate: bottom region dimming confirmed={dimming['confirmed']}", flush=True)
 
-        if dimming['confirmed']:
-            return ({
-                'action': 'back',
-                'node': None,
-                'direction': 'none',
-                'reason': 'Dismiss the unplanned dimmed bottom sheet with Android Back.',
-                'evidence': 'Dimmed background and foreground boundary confirmed (luminance-based detection).'
-            }, {
-                'source': 'unexpected_modal_back_gate',
-                'modal_marker_grounded': False,
-                'dimming_evidence': dimming,
-                'luminance_only': True
-            })
+    if dimming['confirmed']:
+        print(f"DEBUG unexpected_modal_back_gate: DIMMING DETECTED - issuing back action", flush=True)
+        return ({
+            'action': 'back',
+            'node': None,
+            'direction': 'none',
+            'reason': 'Dismiss the unplanned dimmed bottom sheet with Android Back.',
+            'evidence': 'Dimmed background and foreground boundary confirmed (luminance-based physics detection).'
+        }, {
+            'source': 'unexpected_modal_back_gate',
+            'modal_marker_grounded': False,
+            'dimming_evidence': dimming,
+            'luminance_only': not bool(nodes)
+        })
+
+    # If no dimming detected, only continue with hierarchy-based detection if hierarchy available
+    if not nodes:
+        print(f"DEBUG unexpected_modal_back_gate: no dimming and no hierarchy nodes", flush=True)
         return None
     by_id={n['node']:n for n in nodes}
     # Decode the screenshot once. Several hierarchy candidates may describe
