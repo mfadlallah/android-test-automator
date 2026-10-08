@@ -166,14 +166,16 @@ class Device:
                 output = self.adb(
                     'shell', 'uiautomator', 'dump', self.remote
                 )
-                diagnostics.append(
-                    f'Attempt {attempt}: {output.strip()}'
-                )
+                dump_msg = f'Attempt {attempt}: uiautomator dump output: {output.strip()}'
+                diagnostics.append(dump_msg)
+                print(f"DEBUG {dump_msg}", flush=True)
 
                 exists = self.adb(
                     'shell', 'ls', '-l', self.remote
                 )
-                diagnostics.append(exists.strip())
+                ls_msg = f'File check: {exists.strip()}'
+                diagnostics.append(ls_msg)
+                print(f"DEBUG {ls_msg}", flush=True)
 
                 xml = self.adb('shell', 'cat', self.remote)
                 nodes = parse_nodes(xml, self.package)
