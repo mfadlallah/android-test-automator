@@ -179,7 +179,18 @@ class GenericAdapter(DomainAdapter):
         # Find scrollable container
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
-            print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}"', flush=True)
+            print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
+            # Fallback: use semantic detection to find the target region
+            semantic_bounds = self._ground_assertion_target(target, observation, step)
+            if semantic_bounds:
+                return semantic_bounds
+            # Ultimate fallback: use full screen width, top portion for first item
+            png = observation.get('png', b'')
+            if len(png) >= 24:
+                import struct
+                width, height = struct.unpack('>II', png[16:24])
+                # Estimate first item in top third of screen
+                return BoundingBox(0, int(height * 0.15), width, int(height * 0.35))
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
