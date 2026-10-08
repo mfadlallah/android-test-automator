@@ -150,15 +150,16 @@ class Device:
         return {'nodes':[],'png':png,'observation':index,
                 'hierarchy_unavailable':True,'fast_probe':True}
     def observe(self, folder, index, allow_screenshot_only=False):
+        # Skip hierarchy dump entirely when we know UIAutomator is unavailable
+        if allow_screenshot_only:
+            return self.observe_screenshot_only(folder, index)
+
         stem = folder / f'{index:02d}'
         diagnostics = []
         nodes = None
         xml = ''
-        # Screenshot-only recovery is entered after we have already verified
-        # and dismissed a modal with either Back or its grounded close action.
-        # Do not spend ~15 seconds retrying an accessibility dump that is
-        # known to be temporarily unavailable.
-        max_attempts = 1 if allow_screenshot_only else 6
+        # Try up to 6 times to capture hierarchy on main activity
+        max_attempts = 6
 
         for attempt in range(1, max_attempts + 1):
             try:
