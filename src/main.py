@@ -3331,8 +3331,7 @@ def run_sequential_plan(
                 'decision':decision,
             }
         elif capability=='recover_optional':
-            known=(fast_offer or
-                   delivery_address_gate(obs,history) or
+            known=(delivery_address_gate(obs,history) or
                    in_app_message_gate(obs,history) or
                    unexpected_modal_back_gate(
                        obs,history,plan,step_index))
