@@ -394,7 +394,7 @@ class Device:
 
         elapsed = time_module.time() - start_time
         print(f"⏱️  wait_for_stability timed out after {elapsed:.1f}s (max: {max_wait}s). Returning observation.", flush=True)
-        return self.observe(folder, index)
+        return self.observe(folder, index, allow_screenshot_only=screenshot_only)
 
     def _nodes_structurally_similar(self, nodes1, nodes2, similarity_threshold=0.85):
         """Check if node hierarchy is structurally similar."""
