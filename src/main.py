@@ -180,7 +180,9 @@ class Device:
                 break
             except (Blocked, ET.ParseError,
                     subprocess.TimeoutExpired) as exc:
-                diagnostics.append(str(exc))
+                err_msg = f'{type(exc).__name__}: {str(exc)}'
+                diagnostics.append(err_msg)
+                print(f"DEBUG observe() attempt {attempt+1}/{max_attempts} failed: {err_msg}", flush=True)
                 if attempt < max_attempts:
                     time.sleep(3)
 
@@ -193,11 +195,12 @@ class Device:
             raise Blocked('Invalid device screenshot')
 
         if nodes is None and not allow_screenshot_only:
+            log_path = stem.with_name(stem.name + '-dump-log.txt')
+            log_content = log_path.read_text(encoding='utf-8') if log_path.exists() else '(no log)'
+            print(f"DEBUG observe() failed after {max_attempts} attempts:\n{log_content}", flush=True)
             raise Blocked(
                 f'Could not capture UI hierarchy after {max_attempts} attempts. '
-                'See ' + str(stem.with_name(
-                    stem.name + '-dump-log.txt'
-                ))
+                'See ' + str(log_path)
             )
 
         if nodes is None:
