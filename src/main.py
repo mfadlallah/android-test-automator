@@ -1747,6 +1747,14 @@ def hour_offer_gate(obs, history):
     if not expires_rows:
         return None
 
+    # Additional validation: the "Expires in" text for a modal should be high
+    # on the screen (in the top half), not buried in carousel items.
+    # Filter out expiry text in carousel tiles (typically in lower 2/3).
+    height = struct.unpack('>II', obs['png'][16:24])[1] if len(obs.get('png',b'')) >= 24 else 2340
+    expires_rows = [r for r in expires_rows if r['bounds'][1] < height * 0.55]
+    if not expires_rows:
+        return None
+
     def result(action,reason,**extra):
         decision={
             'action':action,'node':None,'direction':'none',
