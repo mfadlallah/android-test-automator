@@ -247,20 +247,19 @@ class Device:
         diagnostics = []
         nodes = None
         xml = ''
-        # Try up to 6 times to capture hierarchy on main activity
-        max_attempts = 6
+        # A hierarchy dump is preferred, but it is an observation channel, not
+        # a reason to discard the entire test attempt.  Keep retries bounded;
+        # the sequential executor will probe UIAutomator again on its next
+        # observation while this one can still use screenshot/OCR safely.
+        max_attempts = 3
 
         for attempt in range(1, max_attempts + 1):
             try:
-                # Kill any stuck uiautomator process to prevent hanging
-                try:
-                    self.adb('shell', 'pkill', '-f', 'uiautomator')
-                except Exception:
-                    pass
-
-                # Wait for UIAutomator service to recover
-                # First attempt needs longer wait after back/recovery actions
-                wait_time = 2 if attempt == 1 else 0.5
+                # Do not kill UIAutomator before a normal dump.  On some
+                # devices pkill also tears down the service that should create
+                # the next XML file, producing a successful command with empty
+                # output and no dump file.
+                wait_time = 0.2 if attempt == 1 else 0.5
                 time.sleep(wait_time)
 
                 # Remove any older dump so it cannot be read as a fresh screen.
@@ -301,9 +300,23 @@ class Device:
                     subprocess.TimeoutExpired) as exc:
                 err_msg = f'{type(exc).__name__}: {str(exc)}'
                 diagnostics.append(err_msg)
-                print(f"DEBUG observe() attempt {attempt+1}/{max_attempts} failed: {err_msg}", flush=True)
+                print(f"DEBUG observe() attempt {attempt}/{max_attempts} failed: {err_msg}", flush=True)
                 if attempt < max_attempts:
-                    time.sleep(3)
+                    # Clean up only after an actual failed dump, never before
+                    # the healthy path.  Failure is tolerated because some
+                    # Android builds do not expose pkill to shell.
+                    if (attempt == 2 and
+                            isinstance(exc,subprocess.TimeoutExpired)):
+                        try:
+                            self.adb('shell','pkill','-f','uiautomator')
+                            diagnostics.append(
+                                'Cleaned a failed UIAutomator process before '
+                                'the final retry.')
+                        except (Blocked, subprocess.TimeoutExpired):
+                            diagnostics.append(
+                                'UIAutomator cleanup was unavailable; '
+                                'continuing to the final retry.')
+                    time.sleep(0.4)
 
         stem.with_name(stem.name + '-dump-log.txt').write_text(
             '\n'.join(diagnostics), encoding='utf-8'
@@ -316,30 +329,22 @@ class Device:
         # Handle cases where hierarchy is unavailable or empty
         hierarchy_available = nodes is not None and len(nodes) > 0
 
-        if not hierarchy_available and not allow_screenshot_only:
-            # Only raise if we failed after multiple attempts (hierarchy dump failed)
-            # Don't raise if parse_nodes simply returned empty (XML valid but no matching nodes)
-            if nodes is None:
-                log_path = stem.with_name(stem.name + '-dump-log.txt')
-                log_content = log_path.read_text(encoding='utf-8') if log_path.exists() else '(no log)'
-                print(f"DEBUG observe() failed after {max_attempts} attempts:\n{log_content}", flush=True)
-                raise Blocked(
-                    f'Could not capture UI hierarchy after {max_attempts} attempts. '
-                    'See ' + str(log_path)
-                )
-
         if not hierarchy_available:
+            dump_failed=nodes is None
             nodes = []
-            if nodes is None:
-                # Hierarchy dump failed, not parse error
+            if dump_failed:
                 diagnostics.append(
-                    'Continuing with screenshot/OCR fallback during a verified '
-                    'post-action transition.')
+                    'Hierarchy dump remained unavailable after bounded '
+                    'retries; continuing this observation with screenshot/OCR. '
+                    'The next plan observation will retry full hierarchy.')
+                print(
+                    'Recovery: UI hierarchy temporarily unavailable; using '
+                    'bounded screenshot/OCR fallback for this observation.',
+                    flush=True)
             else:
-                # Valid XML but no matching nodes (different activity/package)
                 diagnostics.append(
-                    'Valid XML but no nodes for app package; using screenshot/OCR. '
-                    'Likely on non-launcher activity with different package structure.')
+                    'Valid XML contained no usable nodes; using screenshot/OCR '
+                    'for this observation and retrying hierarchy next time.')
             stem.with_name(stem.name + '-dump-log.txt').write_text(
                 '\n'.join(diagnostics), encoding='utf-8'
             )
@@ -475,12 +480,10 @@ class Device:
         if action=='wait': time.sleep(2); return
         if action=='back':
             self.adb('shell','input','keyevent','4')
-            # Wait for Back action to stabilize (dimmed sheet can leave
-            # accessibility temporarily unavailable; use screenshot-only for stability)
-            if self.artifact_folder:
-                self.wait_for_stability(self.artifact_folder, self.observation_index, max_wait=3, screenshot_only=True)
-            else:
-                time.sleep(0.8)  # fallback
+            # The following executor observation verifies the resulting state
+            # with hierarchy plus screenshot/OCR.  Repeated screenshot probes
+            # here previously turned a nominal 3-second wait into 9+ seconds.
+            time.sleep(0.6)
             return
         if action=='screen_scroll':
             import struct

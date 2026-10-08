@@ -1,9 +1,13 @@
 import json
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from src.main import (
+    Blocked,
+    Device,
     assess_plan_assertion,
     assertion_crop_bounds,
     canonicalize_scoped_contains_result,
@@ -14,6 +18,39 @@ from src.adapters.generic_adapter import GenericAdapter
 
 
 class HierarchyParsingTests(unittest.TestCase):
+    @patch('src.main.time.sleep')
+    def test_failed_dump_uses_one_observation_fallback_and_retries_later(
+            self,_sleep):
+        device=Device('serial','com.example.app')
+        calls=[]
+        png=(b'\x89PNG\r\n\x1a\n'+b'\x00'*8+
+             struct.pack('>II',1080,2340))
+
+        def adb(*args,**kwargs):
+            calls.append(args)
+            if args[:2]==('exec-out','screencap'):
+                return png
+            if args[:3]==('shell','ls','-l'):
+                raise Blocked('dump file is absent')
+            return ''
+
+        device.adb=adb
+        with tempfile.TemporaryDirectory() as temporary:
+            observation=device.observe(Path(temporary),4)
+            self.assertEqual([],observation['nodes'])
+            self.assertTrue(observation['hierarchy_unavailable'])
+            self.assertTrue((Path(temporary)/'04.png').exists())
+            log=(Path(temporary)/'04-dump-log.txt').read_text()
+            self.assertIn('bounded retries',log)
+        self.assertEqual(3,sum(
+            args[:3]==('shell','uiautomator','dump') for args in calls))
+        # Cleanup is recovery-only; it must never precede the first dump.
+        first_dump=next(index for index,args in enumerate(calls)
+                        if args[:3]==('shell','uiautomator','dump'))
+        self.assertFalse(any(
+            args[:3]==('shell','pkill','-f')
+            for args in calls[:first_dump]))
+
     def test_non_launcher_foreground_package_is_retained(self):
         xml='''<?xml version="1.0" encoding="UTF-8"?>
         <hierarchy>
