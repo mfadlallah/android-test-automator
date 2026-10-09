@@ -8,6 +8,7 @@ Instead, it relies on:
 - Generic accessibility hierarchy + OCR grounding
 """
 
+import io
 import re
 import struct
 from typing import Dict, Any, Optional, Set, Tuple, List
@@ -237,7 +238,14 @@ class GenericAdapter(DomainAdapter):
                 estimated=self._estimate_first_item_from_ocr(
                     target,observation,(width,height))
                 if estimated:
-                    return BoundingBox(*estimated)
+                    region=tuple(estimated)
+                    label=self._find_label_in_region(
+                        observation,step.get('value',''),region)
+                    if label and step.get('capability') in {
+                            'assert_contains','assert_not_contains'}:
+                        return BoundingBox(*self._expand_label_bounds(
+                            label,region,(width,height)))
+                    return BoundingBox(*region)
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
@@ -408,14 +416,79 @@ class GenericAdapter(DomainAdapter):
             band_bottom=max(row['bounds'][3] for row in band['rows'])
             if (len(band['rows'])>=2 and band_bottom>anchor_bottom
                     and band_bottom<=height*.58):
-                control_bottom=max(control_bottom,band_bottom)
+                control_bottom=band_bottom
+                break
 
-        start=max(round(height*.38),control_bottom+round(height*.015))
-        start=min(start,round(height*.62))
-        end=min(height, start+round(height*.32))
-        if end-start<120:
+        # A grounded controls/heading band, rather than a fixed screen fraction,
+        # supports compact rows and large image cards at different positions.
+        if not anchors and control_bottom==anchor_bottom:
             return None
-        return [0,start,width,end]
+        start=control_bottom+max(4,round(height*.015))
+        content=[row for row in observation.get('ocr',[])
+                 if row.get('confidence',0)>=.55
+                 and len(row.get('bounds',[]))==4
+                 and row['bounds'][1]>=start
+                 and row['bounds'][3]<height*.94]
+        content.sort(key=lambda row:(row['bounds'][1],row['bounds'][0]))
+        titles=[row for row in content
+                if re.match(r'[^\W\d_]',row.get('text',''),re.UNICODE)
+                and row['bounds'][0]<width*.5]
+        first=titles[0] if titles else None
+        next_title=None
+        if first:
+            fx,fy,_,fb=first['bounds']; font=fb-fy
+            next_title=next((row for row in titles[1:]
+                if abs(row['bounds'][0]-fx)<width*.10
+                and .7*font<=row['bounds'][3]-row['bounds'][1]<=1.25*font
+                and row['bounds'][1]-fb>font*2.5),None)
+        limit=next_title['bounds'][1] if next_title else round(height*.94)
+        previous_rows=[row for row in content if row['bounds'][1]<limit]
+        trailing=max((row['bounds'][3] for row in previous_rows),default=start)
+        boundary=self._ocr_item_separator(observation,start,trailing,limit)
+        confirmed=first is not None and boundary is not None
+        if boundary is None:
+            # Keep a bounded diagnostic crop; guessed extents cannot authorize
+            # first-item label verdicts.
+            boundary=min(limit,start+round(height*.32))
+        observation['ocr_item_scope']={
+            'target':target,'bounds':[0,start,width,boundary],
+            'boundary_confirmed':confirmed,
+            'source':'ocr_layout_and_separator' if confirmed else 'ocr_layout_estimate',
+        }
+        if boundary-start<30:
+            return None
+        return [0,start,width,boundary]
+
+    def _ocr_item_separator(self, observation, start, trailing, limit):
+        """Locate a background gap after OCR content, independent of colors.
+
+        Compare the row interior with its own screen gutters. Internal blank
+        lines before metadata are excluded by starting after trailing OCR text.
+        Pillow is optional; an unavailable separator is uncertainty.
+        """
+        try:
+            from PIL import Image
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            w,h=image.size
+            # Sampling caps work at ~100 pixels per row; no model call needed.
+            image=image.resize((100,h))
+            run=0; run_start=None
+            for y in range(max(start,trailing+2),min(h,limit)):
+                left=image.getpixel((1,y)); right=image.getpixel((98,y))
+                background=tuple((a+b)/2 for a,b in zip(left,right))
+                uniform=sum(max(abs(c-b) for c,b in zip(
+                    image.getpixel((x,y)),background))<=5
+                    for x in range(4,96))>=90
+                if uniform:
+                    if not run: run_start=y
+                    run+=1
+                    if run>=max(6,round(h*.004)):
+                        return run_start
+                else:
+                    run=0
+        except (ImportError,OSError,ValueError):
+            return None
+        return None
 
     def _extract_keywords(self, target: str) -> Set[str]:
         """
@@ -621,7 +694,7 @@ class GenericAdapter(DomainAdapter):
         screen_width,screen_height=screenshot_dims
         label_width=max(1,x2-x1)
         label_height=max(1,y2-y1)
-        target_width=max(220,label_width*4)
+        target_width=max(220,label_width*2)
         target_height=max(140,label_height*4)
         center_x=(x1+x2)//2
         center_y=(y1+y2)//2

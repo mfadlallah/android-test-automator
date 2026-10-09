@@ -687,3 +687,19 @@ The Python runner uses only the standard library. Tests cover plan validation,
 capability extraction, navigation, multiple interruptions, false-positive
 recovery, idempotent control setup, layout verification, current-screen safety,
 and screenshot-based scrolling.
+
+### OCR fallback for first-item label assertions
+
+When the hierarchy is unavailable, the generic adapter estimates the first
+item from a heading/controls OCR band and looks for an image-background
+separator after the item text. It supports compact rows and image cards
+without product names, resource IDs, fixed item heights, or a fixed background
+color. Exact observed labels use deterministic contains polarity and receive
+a tighter context crop. An OCR miss does not prove absence: an unconfirmed
+item boundary blocks both contains assertions; confirmed scopes still require
+visual assessment when OCR is inconclusive. This is bounded layout support,
+not a guarantee for grids, overlapping content, or every UI structure.
+
+Assertion JSON records `item_scope` (source, bounds and boundary confidence)
+alongside the crop and original screenshot. Full hierarchy probing resumes on
+subsequent observations.

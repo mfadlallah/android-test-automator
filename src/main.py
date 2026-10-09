@@ -1461,6 +1461,7 @@ def assess_plan_assertion(
             'source_image':f'{observation:02d}.png',
             'crop_image':crop_path.name,
             'crop_bounds':crop_bounds,
+            'item_scope':obs.get('ocr_item_scope'),
             'crop_with_border':prefix+'-with-border.png',
             'attempts':0,
             'retried':False,
@@ -1502,6 +1503,14 @@ def assess_plan_assertion(
                 encoding='utf-8')
         deterministic=scoped_exact_value_result(
             obs,step,crop_bounds,crop_ocr)
+
+    scope=obs.get('ocr_item_scope',{})
+    if (step.get('capability') in {'assert_contains','assert_not_contains'}
+            and scope.get('target')==step.get('target')
+            and not scope.get('boundary_confirmed',False)):
+        error='First item boundary is uncertain; cannot attribute label evidence to the first item.'
+        save_crop_metadata(0,error=error,errors=[error])
+        raise Blocked(error)
 
     # OCR/accessibility misses are not proof of absence.  A negative assertion
     # therefore continues to the bounded visual assessment unless the expected
