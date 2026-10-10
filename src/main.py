@@ -3680,6 +3680,8 @@ def run_sequential_plan(
             history,previous,next_step)
         obs=device.observe(folder,observation_index,allow_screenshot)
         obs['ocr']=read_screen_ocr(obs)
+        (folder/f'{observation_index:02d}-screen-ocr.json').write_text(
+            json.dumps(obs['ocr'],ensure_ascii=False,indent=2),encoding='utf-8')
         if step_index>=len(steps):
             return finish('PASSED','All structured plan steps passed.',
                           history[-1]['decision'].get('evidence',''))
@@ -3915,6 +3917,8 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
         )
         obs=device.observe(folder,index,screenshot_fallback_allowed)
         obs['ocr']=read_screen_ocr(obs)
+        (folder/f'{index:02d}-screen-ocr.json').write_text(
+            json.dumps(obs['ocr'],ensure_ascii=False,indent=2),encoding='utf-8')
         unchanged=(unchanged+1 if previous and not obs.get('hierarchy_unavailable')
                    and signature(previous)==signature(obs) else 0)
         if unchanged>=4:

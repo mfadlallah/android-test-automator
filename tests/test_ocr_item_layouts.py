@@ -70,6 +70,26 @@ class OcrItemLayoutTests(unittest.TestCase):
             {'capability':'assert_contains','target':'first product item','value':'Sponsored'},
             [bounds.x1,bounds.y1,bounds.x2,bounds.y2])['status'])
 
+    def test_metadata_resembling_next_title_does_not_truncate_card(self):
+        for scale in (.75,1,2):
+            for dark in (False,True):
+                with self.subTest(scale=scale,dark=dark):
+                    obs=self.observation(scale,card=True,dark=dark)
+                    obs['ocr'].append({'text':'Extra details','confidence':.99,
+                        'bounds':[int(v*scale) for v in (30,790,220,830)]})
+                    GenericAdapter().get_assertion_crop('first product item',obs,
+                        {'capability':'assert_contains','value':'Sponsored'})
+                    scope=obs['ocr_item_scope']
+                    self.assertTrue(scope['boundary_confirmed'])
+                    self.assertGreaterEqual(scope['bounds'][3],850*scale)
+                    self.assertLess(scope['bounds'][3],880*scale)
+
+    def test_plain_whitespace_without_next_surface_is_not_card_gap(self):
+        image=Image.new('RGB',(600,1200),'white')
+        buffer=io.BytesIO();image.save(buffer,format='PNG')
+        self.assertIsNone(GenericAdapter()._visual_card_gap(
+            {'png':buffer.getvalue()},400,1100))
+
     def test_no_content_anchor_does_not_guess_item_from_status_bar(self):
         obs=self.observation();obs['ocr']=[{'text':'M','confidence':1,'bounds':[20,10,50,30]}]
         self.assertIsNone(GenericAdapter().get_assertion_crop(

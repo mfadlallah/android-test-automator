@@ -446,6 +446,15 @@ class GenericAdapter(DomainAdapter):
         previous_rows=[row for row in content if row['bounds'][1]<limit]
         trailing=max((row['bounds'][3] for row in previous_rows),default=start)
         boundary=self._ocr_item_separator(observation,start,trailing,limit)
+        source='ocr_layout_and_separator'
+        # Metadata can resemble another title, and OCR can read words in the
+        # following image. Verify a card gap independently of those words.
+        if first is not None and boundary is None:
+            card_boundary=self._visual_card_gap(observation,first['bounds'][3],
+                                                round(height*.94))
+            if card_boundary is not None:
+                boundary=card_boundary
+                source='ocr_title_and_visual_card_gap'
         confirmed=first is not None and boundary is not None
         if boundary is None:
             # Keep a bounded diagnostic crop; guessed extents cannot authorize
@@ -454,11 +463,53 @@ class GenericAdapter(DomainAdapter):
         observation['ocr_item_scope']={
             'target':target,'bounds':[0,start,width,boundary],
             'boundary_confirmed':confirmed,
-            'source':'ocr_layout_and_separator' if confirmed else 'ocr_layout_estimate',
+            'source':source if confirmed else 'ocr_layout_estimate',
         }
         if boundary-start<30:
             return None
         return [0,start,width,boundary]
+
+    def _visual_card_gap(self, observation, start, limit):
+        """Confirm a background gap followed by a broad rendered surface.
+
+        Inner metadata whitespace retains the card's edge/shadow. A gap must
+        match both gutters, including those edges, then lead to a substantial
+        next surface. This is a bounded card fallback, not a color classifier.
+        """
+        try:
+            from PIL import Image
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            _,height=image.size
+            image=image.resize((100,height))
+            required=max(6,round(height*.004))
+            run=0; gap=None
+            for y in range(start,min(height,limit)):
+                background=tuple((a+b)/2 for a,b in zip(
+                    image.getpixel((1,y)),image.getpixel((98,y))))
+                distances=[max(abs(c-b) for c,b in zip(
+                    image.getpixel((x,y)),background)) for x in range(3,97)]
+                uniform=(distances[0]<=1 and distances[-1]<=1
+                         and sum(d<=5 for d in distances)>=92)
+                if uniform:
+                    if not run: gap=y
+                    run+=1
+                    continue
+                if run>=required:
+                    # A small label or badge after whitespace is not a new
+                    # card. Require several rows of broad non-background UI.
+                    broad=0
+                    for next_y in range(y,min(limit,y+round(height*.05))):
+                        bg=tuple((a+b)/2 for a,b in zip(
+                            image.getpixel((1,next_y)),image.getpixel((98,next_y))))
+                        occupied=sum(max(abs(c-b) for c,b in zip(
+                            image.getpixel((x,next_y)),bg))>15 for x in range(4,96))
+                        broad=broad+1 if occupied>=60 else 0
+                        if broad>=required:
+                            return gap
+                run=0
+        except (ImportError,OSError,ValueError):
+            return None
+        return None
 
     def _plain_surface_titles(self, observation, candidates):
         """Exclude artwork text from repeated item-title candidates.

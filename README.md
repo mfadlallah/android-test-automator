@@ -703,3 +703,9 @@ not a guarantee for grids, overlapping content, or every UI structure.
 Assertion JSON records `item_scope` (source, bounds and boundary confidence)
 alongside the crop and original screenshot. Full hierarchy probing resumes on
 subsequent observations.
+
+If metadata resembles another item title, a visual card-gap fallback checks
+for a continuous background gap at the card edges followed by a broad next
+surface. It does not depend on item names, label values, or background colors.
+Uncertain boundaries still block the assertion. Each observation also saves
+`NN-screen-ocr.json` with the full OCR text, bounds, and confidence for diagnosis.
