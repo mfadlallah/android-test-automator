@@ -433,6 +433,7 @@ class GenericAdapter(DomainAdapter):
         titles=[row for row in content
                 if re.match(r'[^\W\d_]',row.get('text',''),re.UNICODE)
                 and row['bounds'][0]<width*.5]
+        titles=self._plain_surface_titles(observation,titles)
         first=titles[0] if titles else None
         next_title=None
         if first:
@@ -458,6 +459,30 @@ class GenericAdapter(DomainAdapter):
         if boundary-start<30:
             return None
         return [0,start,width,boundary]
+
+    def _plain_surface_titles(self, observation, candidates):
+        """Exclude artwork text from repeated item-title candidates.
+
+        OCR reads words printed inside photographs too. A narrow strip above
+        each candidate distinguishes plain metadata surfaces from textured
+        artwork, without depending on the words or the surface color.
+        """
+        try:
+            from PIL import Image, ImageStat
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            width,height=image.size
+            titles=[]
+            for row in candidates:
+                x1,y1,x2,y2=row['bounds']
+                margin=max(2,round((y2-y1)*.2))
+                strip=image.crop((max(0,x1),max(0,y1-margin),
+                                  min(width,x2),max(1,min(height,y1-1))))
+                if strip.width and strip.height and max(ImageStat.Stat(strip).stddev)<=10:
+                    titles.append(row)
+            return titles
+        except (ImportError,OSError,ValueError):
+            # Without pixels, the existing uncertain-boundary guard applies.
+            return candidates
 
     def _ocr_item_separator(self, observation, start, trailing, limit):
         """Locate a background gap after OCR content, independent of colors.

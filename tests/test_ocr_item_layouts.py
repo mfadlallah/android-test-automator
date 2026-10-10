@@ -43,6 +43,24 @@ class OcrItemLayoutTests(unittest.TestCase):
                             {'capability':'assert_contains','target':'first product item','value':'Ad'},
                             [bounds.x1,bounds.y1,bounds.x2,bounds.y2]))
 
+    def test_text_in_card_artwork_is_not_a_second_item_title(self):
+        obs=self.observation(card=True)
+        image=Image.open(io.BytesIO(obs['png']))
+        draw=ImageDraw.Draw(image)
+        # Textured artwork carrying OCR words above the actual item title.
+        for x in range(20,580,4):
+            draw.rectangle((x,345,x+3,610),fill=(x%256,(x*3)%256,(x*7)%256))
+        buffer=io.BytesIO();image.save(buffer,format='PNG');obs['png']=buffer.getvalue()
+        obs['ocr'] += [
+            {'text':'Crafted by','confidence':.99,'bounds':[30,410,220,450]},
+            {'text':'Nature','confidence':.99,'bounds':[30,510,220,550]},
+        ]
+        bounds=GenericAdapter().get_assertion_crop('first product item',obs,
+            {'capability':'assert_contains','value':'Sponsored'})
+        self.assertTrue(obs['ocr_item_scope']['boundary_confirmed'])
+        self.assertGreaterEqual(bounds.y2,800)
+        self.assertLessEqual(bounds.y2,851)
+
     def test_positive_label_gets_tight_crop_in_ocr_only_mode(self):
         obs=self.observation(card=True)
         bounds=GenericAdapter().get_assertion_crop('first product item',obs,
