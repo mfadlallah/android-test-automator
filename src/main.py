@@ -195,8 +195,30 @@ class Device:
         self.remote = '/data/local/tmp/agent-' + uuid.uuid4().hex + '.xml'
         self.observation_index = 0  # Track observation counter
         self.artifact_folder = None  # Set by orchestrator for stability waiting
-    def adb(self, *args, binary=False):
-        p = subprocess.run(['adb','-s',self.serial,*args], capture_output=True, timeout=35)
+    def adb(self, *args, binary=False, timeout=35, diagnostic_path=None,
+            diagnostic_attempt=None):
+        command=['adb','-s',self.serial,*args]
+        started=time.monotonic()
+        record={'command':command,'started_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
+                'timeout_seconds':timeout,'attempt':diagnostic_attempt}
+        def decode(value):
+            return value.decode(errors='replace') if isinstance(value,bytes) else (value or '')
+        try:
+            p = subprocess.run(command, capture_output=True, timeout=timeout)
+            record.update(exit_code=p.returncode,stdout=decode(p.stdout),
+                          stderr=decode(p.stderr),timed_out=False)
+        except subprocess.TimeoutExpired as exc:
+            record.update(exit_code=None,stdout=decode(exc.stdout),
+                          stderr=decode(exc.stderr),timed_out=True)
+            raise
+        except OSError as exc:
+            record.update(exit_code=None,stdout='',stderr=str(exc),timed_out=False)
+            raise
+        finally:
+            if diagnostic_path is not None:
+                record['duration_seconds']=round(time.monotonic()-started,3)
+                with Path(diagnostic_path).open('a',encoding='utf-8') as log:
+                    log.write(json.dumps(record,ensure_ascii=False)+'\n')
         if p.returncode: raise Blocked('ADB failed: '+p.stderr.decode(errors='replace')[-600:])
         return p.stdout if binary else p.stdout.decode(errors='replace')
     def foreground_package(self):
@@ -244,7 +266,17 @@ class Device:
             return self.observe_screenshot_only(folder, index)
 
         stem = folder / f'{index:02d}'
+        command_log=stem.with_name(stem.name+'-dump-commands.jsonl')
+        command_log.write_text('',encoding='utf-8')
         diagnostics = []
+        # Capture window/activity context once per observation, with short
+        # diagnostic timeouts. Context failures must not prevent a UI dump.
+        for context in (('activity','activities'),('window','windows')):
+            try:
+                self.adb('shell','dumpsys',*context,timeout=5,
+                         diagnostic_path=command_log)
+            except (Blocked,subprocess.TimeoutExpired,OSError) as exc:
+                diagnostics.append('Foreground context unavailable: '+str(exc))
         nodes = None
         xml = ''
         # A hierarchy dump is preferred, but it is an observation channel, not
@@ -263,18 +295,21 @@ class Device:
                 time.sleep(wait_time)
 
                 # Remove any older dump so it cannot be read as a fresh screen.
-                self.adb('shell', 'rm', '-f', self.remote)
+                self.adb('shell', 'rm', '-f', self.remote,
+                         diagnostic_path=command_log,diagnostic_attempt=attempt)
 
                 # Regular dump (--compressed may not be supported on all Android versions)
                 output = self.adb(
-                    'shell', 'uiautomator', 'dump', self.remote
+                    'shell', 'uiautomator', 'dump', self.remote,
+                    diagnostic_path=command_log,diagnostic_attempt=attempt
                 )
                 dump_msg = f'Attempt {attempt}: uiautomator dump output: {output.strip()}'
                 diagnostics.append(dump_msg)
                 print(f"DEBUG {dump_msg}", flush=True)
 
                 exists = self.adb(
-                    'shell', 'ls', '-l', self.remote
+                    'shell', 'ls', '-l', self.remote,
+                    diagnostic_path=command_log,diagnostic_attempt=attempt
                 )
                 ls_msg = f'File check: {exists.strip()}'
                 diagnostics.append(ls_msg)

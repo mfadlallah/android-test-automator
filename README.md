@@ -709,3 +709,10 @@ for a continuous background gap at the card edges followed by a broad next
 surface. It does not depend on item names, label values, or background colors.
 Uncertain boundaries still block the assertion. Each observation also saves
 `NN-screen-ocr.json` with the full OCR text, bounds, and confidence for diagnosis.
+
+Hierarchy diagnostics are saved in `NN-dump-commands.jsonl`: each dump attempt
+records its command, UTC start time, duration, exit code, timeout state, and
+complete stdout/stderr (including stderr on exit code zero and partial output
+on timeout). The file also includes bounded activity/window snapshots at the
+start of the observation. These diagnostics identify dump failures without
+changing assertion outcomes or hiding the existing screenshot/OCR fallback.

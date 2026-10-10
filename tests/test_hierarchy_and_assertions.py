@@ -1,5 +1,6 @@
 import json
 import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,41 @@ from src.adapters.generic_adapter import GenericAdapter
 
 
 class HierarchyParsingTests(unittest.TestCase):
+    @patch('src.main.subprocess.run')
+    def test_dump_diagnostics_keep_stderr_on_success_and_failure(self,run):
+        device=Device('serial','com.example.app')
+        with tempfile.TemporaryDirectory() as temporary:
+            log=Path(temporary)/'commands.jsonl'
+            run.return_value=subprocess.CompletedProcess([],0,b'',b'ERROR: idle state unavailable')
+            self.assertEqual('',device.adb('shell','uiautomator','dump','file.xml',
+                diagnostic_path=log,diagnostic_attempt=1))
+            run.return_value=subprocess.CompletedProcess([],1,b'partial output',b'dump failed')
+            with self.assertRaises(Blocked):
+                device.adb('shell','uiautomator','dump','file.xml',
+                    diagnostic_path=log,diagnostic_attempt=2)
+            records=[json.loads(line) for line in log.read_text().splitlines()]
+            self.assertEqual('ERROR: idle state unavailable',records[0]['stderr'])
+            self.assertEqual(0,records[0]['exit_code'])
+            self.assertEqual('partial output',records[1]['stdout'])
+            self.assertEqual(1,records[1]['exit_code'])
+            self.assertEqual(2,records[1]['attempt'])
+            self.assertGreaterEqual(records[1]['duration_seconds'],0)
+
+    @patch('src.main.subprocess.run')
+    def test_dump_timeout_keeps_partial_streams_and_is_still_raised(self,run):
+        run.side_effect=subprocess.TimeoutExpired(['adb'],35,
+            output=b'waiting for root',stderr=b'accessibility timeout')
+        with tempfile.TemporaryDirectory() as temporary:
+            log=Path(temporary)/'commands.jsonl'
+            with self.assertRaises(subprocess.TimeoutExpired):
+                Device('serial','com.example.app').adb('shell','uiautomator','dump',
+                    diagnostic_path=log)
+            record=json.loads(log.read_text())
+            self.assertTrue(record['timed_out'])
+            self.assertIsNone(record['exit_code'])
+            self.assertEqual('waiting for root',record['stdout'])
+            self.assertEqual('accessibility timeout',record['stderr'])
+
     @patch('src.main.time.sleep')
     def test_failed_dump_uses_one_observation_fallback_and_retries_later(
             self,_sleep):
