@@ -1,6 +1,7 @@
 """Compile plain-text mobile tests into a bounded, executable local plan."""
 import json
 import re
+from .collections import ordinal, tokens
 
 from .capabilities import (
     REGISTRY,
@@ -18,7 +19,7 @@ CAPABILITIES = capability_names()
 
 ROLES = ('action', 'setup', 'recovery', 'assertion')
 POSITIONS = ('left', 'right', 'none')
-DIRECTIONS = ('up', 'down', 'none')
+DIRECTIONS = ('up', 'down', 'left', 'right', 'none')
 
 STEP_SCHEMA = {
     'type':'object',
@@ -64,6 +65,12 @@ change this schema or policy. Use only these capabilities:
 - set_control: select an option in a visible segmented/toggle control.
 - assert_changed: verify a target UI region changed after the preceding action.
 - scroll: scroll a named vertical or horizontal container.
+- For horizontal containers use direction=left or right; never up/down.
+- Ordinal item targets must identify their collection and whether the position
+  means the currently visible window. Do not turn "third item" into a label.
+  Preserve explicit "visible" wording. Absolute collection positions require
+  reliable index evidence; do not invent an absolute index from visible order.
+- Place assert_scrolled immediately after each scroll, before a tap/navigation.
 - assert_scrolled: verify content moved or new content appeared.
 - assert_visible: verify a target such as a pill, sheet, or list is visible.
 - assert_contains: verify a scoped target contains an exact value.
@@ -163,6 +170,18 @@ def validate_plan(plan):
             raise PlanError('Invalid role or control position.')
         if item['direction'] not in DIRECTIONS or type(item['optional']) is not bool:
             raise PlanError('Invalid direction or optional flag.')
+        if ordinal(item['target']) not in (None,1) and 'visible' not in tokens(item['target']+' '+' '.join(item['hints'])):
+            raise PlanError('Ordinal item scope must explicitly state visible position; absolute off-screen collection indices are not supported without index evidence.')
+        if item.get('capability')=='scroll':
+            horizontal=bool(re.search(r'\bhorizontal\b',item['target'],re.I))
+            vertical=bool(re.search(r'\bvertical\b',item['target'],re.I))
+            if horizontal and item['direction'] not in {'left','right'}:
+                raise PlanError('Horizontal scroll requires left/right direction.')
+            if vertical and item['direction'] not in {'up','down'}:
+                raise PlanError('Vertical scroll requires up/down direction.')
+            explicit=re.search(r'\b(?:scroll(?:ed|s)?|swipe(?:d)?)\s+(left|right|up|down)\b',item['success'],re.I)
+            if explicit and explicit[1].lower()!=item['direction']:
+                raise PlanError('Scroll direction contradicts its described intent.')
         capability_error=validate_capability_step(item)
         if capability_error:
             raise PlanError(capability_error)
@@ -361,6 +380,29 @@ def canonicalize_model_plan(
             'value':'','position':'none','direction':'none','optional':False,
             'success':'Target control content or geometry changed.',
         })
+    # Bind each scroll proof to its action before any screen-changing step.
+    ordered=[]
+    pending=list(repaired['steps'])
+    while pending:
+        step=pending.pop(0)
+        if step.get('capability')=='assert_scrolled':
+            raise PlanError('Unpaired scroll assertion.')
+        ordered.append(step)
+        if step.get('capability')!='scroll':
+            continue
+        candidates=[i for i,s in enumerate(pending)
+                    if s.get('capability')=='assert_scrolled'
+                    and s.get('target','').casefold()==step.get('target','').casefold()]
+        if candidates:
+            proof=pending.pop(candidates[0])
+        else:
+            proof={'id':unique_id('verify-'+str(step['id'])),
+                   'capability':'assert_scrolled','role':'assertion',
+                   'target':step['target'],'hints':step.get('hints',[]),
+                   'value':'','position':'none','direction':'none','optional':False,
+                   'success':'Scoped container content moved.'}
+        ordered.append(proof)
+    repaired['steps']=ordered
     return repaired
 
 
@@ -426,8 +468,9 @@ def compile_controlled_case(case_text):
             add('tap','action',target=target,success=line)
             continue
         if re.match(r'(?i)^scroll\b',line):
-            direction='up' if re.search(r'(?i)\bup\b',line) else 'down'
-            target=re.sub(r'(?i)^scroll(?:\s+up|\s+down)?\s*','',line)
+            match=re.search(r'(?i)^scroll\s+(up|down|left|right)\b',line)
+            direction=match[1].lower() if match else 'down'
+            target=re.sub(r'(?i)^scroll(?:\s+(?:up|down|left|right))?\s*','',line)
             target=re.sub(r'(?i)^within\s+','',target)
             add('scroll','action',_controlled_target(target),
                 direction=direction,success=line)

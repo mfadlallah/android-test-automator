@@ -1,5 +1,23 @@
 # Mobile AI Testing Agent — Local Plan-Driven PoC
 
+Nested collections use hierarchy relationships and visible headings/resource-id
+keywords to select the requested container. Horizontal scrolls use `left`/`right`;
+vertical scrolls use `up`/`down`. The executor does not substitute the main list
+when a horizontal collection is requested. Each scroll proof runs immediately
+after its scroll and inspects content within that container on the relevant axis.
+
+For ordinal targets, write e.g. `second visible item of the horizontal collection`
+and provide its heading/resource-id in the target or hints when multiple matching
+collections exist. This is the order in the **current visible window**, not a global
+adapter position. Fully clipped/missing items, ambiguous containers, and absolute
+off-screen indices are blocked rather than guessed. `assert_visible` on an ordinal
+item saves a crop of that item and grounded hierarchy evidence; visibility of its
+parent collection is insufficient. Use a visible item label to address a specific
+item across scrolls. Screenshot/OCR-only ordinal indexing is not supported yet.
+
+Exceptions preserve prior decision records and completed-step counts in the
+attempt report, `step-results.json`, and `exception.json`.
+
 This proof of concept executes human-written Android test cases on a real
 device while keeping AI inference local. A test case remains plain text; a
 local Ollama model compiles it into a bounded JSON execution plan. Generic
