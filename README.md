@@ -754,3 +754,9 @@ Planning runs before execution. Runtime model calls remain available for ambiguo
 If Ollama reports a context-size HTTP 400, the client retries once with compact JSON evidence. It preserves the plan, assertion polarity/value, system instructions, output schema and images. Other HTTP errors are not retried. If the compact request still exceeds context, the run blocks rather than discarding visual evidence or weakening assertions. This does not guarantee a context fit for arbitrarily large screens.
 
 Unexpected-modal safety: screen brightness differences alone do not authorize Android Back. The local gate requires a grounded modal container; when hierarchy is absent, visual recovery must pass its grounding checks. This avoids treating a dark header above ordinary bright content as a sheet.
+
+### Modal and selected-state assertions
+
+Modal assertions reuse the recovery layer's explicit modal-container markers and ground the requested heading inside that container. The executor retains the container/heading resource IDs when a titled modal is observed. A later hidden assertion can establish closure from a fresh populated hierarchy where both identities and modal containers are absent; a same-name launcher button does not count as the sheet. Missing or ambiguous hierarchy still uses visual assessment. Unmarked custom modals require visual grounding rather than an automatic absence verdict.
+
+Selection assertions use the target's checked/selected state or a radio/checkbox/switch in the same immediate option row. Model fallback must describe selected/checked state; label visibility alone is rejected. Grounded state results are recorded in the normal decision and step artifacts without another model request.

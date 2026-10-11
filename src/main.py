@@ -15,6 +15,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
+from .state_assertions import modal_assertion, selected_assertion
 from .model_evidence import compact_chat_request, context_overflow
 from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
 
@@ -823,6 +824,11 @@ def assertion_evidence_error(step,result):
             if status=='failed' and negative:
                 return ('Negative contains assertion treated proven absence '
                         'as failure for: '+str(step.get('value','')))
+    if capability=='assert_selected' and status=='passed':
+        statement=(result.get('reason','')+' '+result.get('evidence','')).casefold()
+        if (not re.search(r'\b(?:selected|checked|active)\b',statement)
+                or re.search(r'\b(?:not selected|unchecked|not checked)\b',statement)):
+            return 'Selection assertion requires selected/checked state evidence, not label visibility.'
     if capability in {'assert_visible','assert_hidden'}:
         statement=' '.join(
             (result.get('reason','')+' '+result.get('evidence','')).split()
@@ -3685,6 +3691,7 @@ def run_sequential_plan(
     global _toggle_position_cache
     _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; last_action_obs=None; step_index=0
+    modal_identities={}
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
 
@@ -3843,7 +3850,12 @@ def run_sequential_plan(
                           'reason':'Scroll assertion failed.','evidence':evidence}
             usage={'source':'sequential_assertion','step_id':step['id']}
         elif capability in SEQUENTIAL_CAPABILITIES or capability=='assert_changed':
-            if current_home_screen(obs):
+            grounded_state=(modal_assertion(step,obs,modal_identities)
+                            or selected_assertion(step,obs))
+            if grounded_state:
+                result=grounded_state
+                visible_evidence=None
+            elif current_home_screen(obs):
                 result={
                     'status':'blocked',
                     'reason':'Expected the Restaurants flow but the current '
@@ -3855,14 +3867,14 @@ def run_sequential_plan(
             else:
                 visible_evidence=(semantic_visible_evidence(
                     obs,step['target'],step.get('hints',()))
-                    if capability=='assert_visible' else None)
+                    if capability=='assert_visible' and not PLAN_MODAL_WORDS.search(step['target']) else None)
             if visible_evidence:
                 result={
                     'status':'passed',
                     'reason':step['target']+' is visible.',
                     'evidence':visible_evidence,
                 }
-            elif not current_home_screen(obs):
+            elif not grounded_state and not current_home_screen(obs):
                 try:
                     result=assertion_assessor(step,obs,last_action_obs)
                 except Blocked as exc:
