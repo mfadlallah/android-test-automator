@@ -1,5 +1,5 @@
 """Bounded foreground-interruption recovery, independent from navigation steps."""
-from .model_evidence import compact_nodes, compact_history
+from .model_evidence import compact_nodes, compact_history, node_table
 import base64
 import hashlib
 import json
@@ -153,7 +153,7 @@ def normalize_visual_point(value, image_size=None):
 
 def assess(request, model, case, obs, history, timeout=180, vision=True):
     candidates=candidate_ids(obs)
-    payload={'case':case,'recent_actions':compact_history(history), 'nodes':compact_nodes(obs['nodes']),
+    payload={'case':case,'recent_actions':compact_history(history), 'nodes':node_table(obs['nodes']),
         'ocr':obs.get('ocr',[]),
         'modal_candidates':candidates}
     user={'role':'user','content':json.dumps(payload,ensure_ascii=False,separators=(',',':'))}
