@@ -11,9 +11,15 @@ Vision OCR, deterministic safety gates, and ADB.
 Install the optional UIAutomator2 backend in the same Python environment:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -r requirements-hierarchy.txt
 python3 -m src.main --case cases/33271749-sort-restaurants-list.txt --hierarchy-backend uiautomator2
 ```
+
+Activate `.venv` in each new terminal before running the agent. This also
+avoids Homebrew's `externally-managed-environment` restriction; do not bypass
+it with `--break-system-packages`.
 
 UIAutomator2 starts its device-side automation service over ADB; it does not
 require changes to the app under test. The first connection can take longer.

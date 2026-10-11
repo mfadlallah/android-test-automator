@@ -14,7 +14,9 @@ def resolve_backend(requested):
     if requested=='auto':
         return 'uiautomator2' if installed else 'adb'
     if requested=='uiautomator2' and not installed:
-        raise RuntimeError('Install hierarchy backend: python3 -m pip install -r requirements-hierarchy.txt')
+        raise RuntimeError('Install hierarchy backend in a virtual environment: '
+                           'python3 -m venv .venv; source .venv/bin/activate; '
+                           'python3 -m pip install -r requirements-hierarchy.txt')
     return requested
 
 
