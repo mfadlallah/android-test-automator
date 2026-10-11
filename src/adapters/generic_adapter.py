@@ -8,6 +8,7 @@ Instead, it relies on:
 - Generic accessibility hierarchy + OCR grounding
 """
 
+from ..debug import debug_print
 import io
 import re
 import struct
@@ -193,7 +194,7 @@ class GenericAdapter(DomainAdapter):
                     (collection.x2-collection.x1)*(collection.y2-collection.y1)
                     >= width*height*.85)
                 if not near_full_screen:
-                    print(
+                    debug_print(
                         'DEBUG adapter.get_assertion_crop: '
                         f'Using collection bounds for "{target}": '
                         f'({collection.x1}, {collection.y1}, '
@@ -201,7 +202,7 @@ class GenericAdapter(DomainAdapter):
                         flush=True,
                     )
                     return collection
-                print(
+                debug_print(
                     'DEBUG adapter.get_assertion_crop: ignored near-full-screen '
                     f'collection candidate for "{target}"',flush=True)
 
@@ -211,7 +212,7 @@ class GenericAdapter(DomainAdapter):
                 estimated = self._estimate_first_item_from_ocr(
                     target, observation, (width, height))
                 if estimated:
-                    print(
+                    debug_print(
                         'DEBUG adapter.get_assertion_crop: '
                         f'Using OCR collection bounds for "{target}": '
                         f'{estimated}',
@@ -228,7 +229,7 @@ class GenericAdapter(DomainAdapter):
         # Find scrollable container
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
-            print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
+            debug_print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
             # A phrase such as "first product item" is structural intent, not
             # a literal visible label.  Estimate the first content row from
             # OCR layout instead of matching arbitrary substrings on screen.
@@ -249,7 +250,7 @@ class GenericAdapter(DomainAdapter):
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
-        print(f'DEBUG adapter.get_assertion_crop: Found scrollable for "{target}": ({sx1}, {sy1}, {sx2}, {sy2})', flush=True)
+        debug_print(f'DEBUG adapter.get_assertion_crop: Found scrollable for "{target}": ({sx1}, {sy1}, {sx2}, {sy2})', flush=True)
 
         # Find first visible child item
         first_item = self._find_first_item_in_container(
@@ -261,9 +262,9 @@ class GenericAdapter(DomainAdapter):
             # Common pattern: first item is at top of scrollable, ~80-120px tall
             item_height = min(120, int((sy2 - sy1) * 0.15))  # ~15% of scrollable or max 120px
             first_item = (sx1, sy1, sx2, sy1 + item_height)
-            print(f'DEBUG adapter.get_assertion_crop: Using estimated first item for "{target}": {first_item}', flush=True)
+            debug_print(f'DEBUG adapter.get_assertion_crop: Using estimated first item for "{target}": {first_item}', flush=True)
         else:
-            print(f'DEBUG adapter.get_assertion_crop: Found first item for "{target}": {first_item}', flush=True)
+            debug_print(f'DEBUG adapter.get_assertion_crop: Found first item for "{target}": {first_item}', flush=True)
 
         fx1, fy1, fx2, fy2 = first_item
 

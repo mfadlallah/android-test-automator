@@ -1,4 +1,5 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
+from .debug import debug_print
 import argparse
 import base64
 import hashlib
@@ -326,7 +327,7 @@ class Device:
                 )
                 dump_msg = f'Attempt {attempt}: uiautomator dump output: {output.strip()}'
                 diagnostics.append(dump_msg)
-                print(f"DEBUG {dump_msg}", flush=True)
+                debug_print(f"DEBUG {dump_msg}", flush=True)
 
                 exists = self.adb(
                     'shell', 'ls', '-l', self.remote,
@@ -334,7 +335,7 @@ class Device:
                 )
                 ls_msg = f'File check: {exists.strip()}'
                 diagnostics.append(ls_msg)
-                print(f"DEBUG {ls_msg}", flush=True)
+                debug_print(f"DEBUG {ls_msg}", flush=True)
 
                 # Read the dump file
                 xml = self.adb('shell', 'cat', self.remote)
@@ -350,13 +351,13 @@ class Device:
                     f'Parsed nodes: {len(nodes)}; XML node elements: '
                     f'{xml.count("<node")}; XML packages: {xml_packages}')
                 diagnostics.append(parse_msg)
-                print('DEBUG '+parse_msg,flush=True)
+                debug_print('DEBUG '+parse_msg,flush=True)
                 break
             except (Blocked, ET.ParseError,
                     subprocess.TimeoutExpired) as exc:
                 err_msg = f'{type(exc).__name__}: {str(exc)}'
                 diagnostics.append(err_msg)
-                print(f"DEBUG observe() attempt {attempt}/{max_attempts} failed: {err_msg}", flush=True)
+                debug_print(f"DEBUG observe() attempt {attempt}/{max_attempts} failed: {err_msg}", flush=True)
                 if 'could not get idle state' in str(exc).lower():
                     diagnostics.append('Idle-state failure detected; skipping identical retries.')
                     break
@@ -491,7 +492,7 @@ class Device:
             except (Blocked, Exception) as e:
                 # Log errors during stability check instead of silent pass
                 import traceback
-                print(f"DEBUG wait_for_stability error on attempt {attempt}: {type(e).__name__}: {str(e)}")
+                debug_print(f"DEBUG wait_for_stability error on attempt {attempt}: {type(e).__name__}: {str(e)}")
                 traceback.print_exc()
 
             time.sleep(interval)
@@ -1038,7 +1039,7 @@ def semantic_target_bounds(obs,target):
     # If multiple matches, pick the topmost one (most likely the target label)
     if len(matches) > 1:
         selected = min(matches, key=lambda b: b[1])  # sort by y1 (top position)
-        print(f'DEBUG semantic_target_bounds: found {len(matches)} matches for "{target}", selected topmost', flush=True)
+        debug_print(f'DEBUG semantic_target_bounds: found {len(matches)} matches for "{target}", selected topmost', flush=True)
         x1, y1, x2, y2 = selected
     else:
         x1, y1, x2, y2 = matches[0]
@@ -1097,28 +1098,28 @@ def assertion_crop_bounds(obs,step):
         if isinstance(adapter_crop, (list, tuple)) and len(adapter_crop) == 4:
             # Skip full-screen results and use semantic fallback instead
             if not is_full_screen_bounds(adapter_crop):
-                print(f'DEBUG assertion_crop_bounds: adapter returned tight bounds for "{target}": {adapter_crop}', flush=True)
+                debug_print(f'DEBUG assertion_crop_bounds: adapter returned tight bounds for "{target}": {adapter_crop}', flush=True)
                 return list(adapter_crop)
             else:
-                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen, trying semantic', flush=True)
+                debug_print(f'DEBUG assertion_crop_bounds: adapter returned full-screen, trying semantic', flush=True)
         # Or it's a BoundingBox object
         elif hasattr(adapter_crop, 'x1'):
             bounds = [adapter_crop.x1, adapter_crop.y1, adapter_crop.x2, adapter_crop.y2]
             if not is_full_screen_bounds(bounds):
-                print(f'DEBUG assertion_crop_bounds: adapter returned tight BoundingBox for "{target}": {bounds}', flush=True)
+                debug_print(f'DEBUG assertion_crop_bounds: adapter returned tight BoundingBox for "{target}": {bounds}', flush=True)
                 return bounds
             else:
-                print(f'DEBUG assertion_crop_bounds: adapter returned full-screen BoundingBox, trying semantic', flush=True)
+                debug_print(f'DEBUG assertion_crop_bounds: adapter returned full-screen BoundingBox, trying semantic', flush=True)
 
     # Fallback: semantic target bounds for non-item assertions
     if step.get('capability') in LABEL_ASSERTION_CAPABILITIES:
-        print(f'DEBUG assertion_crop_bounds: trying semantic_target_bounds for "{target}"', flush=True)
+        debug_print(f'DEBUG assertion_crop_bounds: trying semantic_target_bounds for "{target}"', flush=True)
         bounds = semantic_target_bounds(obs,step.get('target',''))
         if bounds:
-            print(f'DEBUG assertion_crop_bounds: semantic returned bounds for "{target}": {bounds}', flush=True)
+            debug_print(f'DEBUG assertion_crop_bounds: semantic returned bounds for "{target}": {bounds}', flush=True)
             return bounds
         else:
-            print(f'DEBUG assertion_crop_bounds: semantic returned None for "{target}"', flush=True)
+            debug_print(f'DEBUG assertion_crop_bounds: semantic returned None for "{target}"', flush=True)
     return None
 
     # Note: Keep old logic below as reference for edge cases
@@ -1548,13 +1549,13 @@ def assess_plan_assertion(
                 bordered_path = artifact_folder/(prefix+'-with-border.png')
                 bordered.save(bordered_path)
 
-                print(f'DEBUG saved assertion crop: {crop_path.name}, target={target}, bounds={crop_bounds}',flush=True)
+                debug_print(f'DEBUG saved assertion crop: {crop_path.name}, target={target}, bounds={crop_bounds}',flush=True)
             else:
                 crop_path.write_bytes(current_image)
         except (ImportError, Exception) as e:
             # Fallback: just save the raw crop image
             crop_path.write_bytes(current_image)
-            print(f'DEBUG saved assertion crop (fallback): {crop_path.name}, bounds={crop_bounds}',flush=True)
+            debug_print(f'DEBUG saved assertion crop (fallback): {crop_path.name}, bounds={crop_bounds}',flush=True)
 
         crop_metadata={
             'observation':observation,
@@ -1627,9 +1628,9 @@ def assess_plan_assertion(
             save_crop_metadata(0,deterministic)
             return deterministic
         else:
-            print(f"DEBUG assertion validation failed: {error}",flush=True)
-            print(f"DEBUG step target: {step.get('target','')}",flush=True)
-            print(f"DEBUG model evidence: {deterministic}",flush=True)
+            debug_print(f"DEBUG assertion validation failed: {error}",flush=True)
+            debug_print(f"DEBUG step target: {step.get('target','')}",flush=True)
+            debug_print(f"DEBUG model evidence: {deterministic}",flush=True)
 
     for label,item in observations:
         if item:
@@ -1691,9 +1692,9 @@ def assess_plan_assertion(
                             attempt+1,result,errors=validation_errors)
                         return result
                     last_error=evidence_error
-                    print(f"DEBUG assertion attempt {attempt+1} validation failed: {evidence_error}",flush=True)
-                    print(f"DEBUG result: {result}",flush=True)
-                    print(f"DEBUG target: {step.get('target','')}",flush=True)
+                    debug_print(f"DEBUG assertion attempt {attempt+1} validation failed: {evidence_error}",flush=True)
+                    debug_print(f"DEBUG result: {result}",flush=True)
+                    debug_print(f"DEBUG target: {step.get('target','')}",flush=True)
             elif result is not None:
                 last_error='Invalid local assertion result.'
         validation_errors.append(last_error)
@@ -2229,7 +2230,7 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
 
     nodes=obs['nodes']
     if planned_modal_is_active(plan,step_index,history):
-        print(f"DEBUG unexpected_modal_back_gate: not checking - planned modal active", flush=True)
+        debug_print(f"DEBUG unexpected_modal_back_gate: not checking - planned modal active", flush=True)
         return None
 
     width,height=struct.unpack('>II',obs['png'][16:24])
@@ -2241,7 +2242,7 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
     # the visual assessor and its existing grounding checks instead.
     # No hierarchy means this gate cannot authorize Android Back.
     if not nodes:
-        print(f"DEBUG unexpected_modal_back_gate: no dimming and no hierarchy nodes", flush=True)
+        debug_print(f"DEBUG unexpected_modal_back_gate: no dimming and no hierarchy nodes", flush=True)
         return None
     by_id={n['node']:n for n in nodes}
     # Decode the screenshot once. Several hierarchy candidates may describe
@@ -2250,27 +2251,27 @@ def unexpected_modal_back_gate(obs,history,plan=None,step_index=-1):
     decoded_luminance=decode_png_luminance(obs['png'])
     modal_roots=[]
     candidates = list(candidate_ids(obs))
-    print(f"DEBUG unexpected_modal_back_gate: checking {len(candidates)} candidates (screen {width}x{height})", flush=True)
+    debug_print(f"DEBUG unexpected_modal_back_gate: checking {len(candidates)} candidates (screen {width}x{height})", flush=True)
     for number in candidates:
         node=by_id[number]
         x1,y1,x2,y2=node['bounds']
         h=y2-y1
-        print(f"DEBUG unexpected_modal_back_gate: candidate {number} bounds=({x1},{y1},{x2},{y2}) h={h} thresholds: y1>={height*.36} h>={height*.25} y2>={height*.88}", flush=True)
+        debug_print(f"DEBUG unexpected_modal_back_gate: candidate {number} bounds=({x1},{y1},{x2},{y2}) h={h} thresholds: y1>={height*.36} h>={height*.25} y2>={height*.88}", flush=True)
         # Bottom sheets start well below the top content, occupy meaningful
         # height, and reach the bottom region. This excludes the normal list.
         if y1>=height*.36 and h>=height*.25 and y2>=height*.88:
-            print(f"DEBUG unexpected_modal_back_gate: node {number} MATCHES position/size criteria", flush=True)
+            debug_print(f"DEBUG unexpected_modal_back_gate: node {number} MATCHES position/size criteria", flush=True)
             identity=(node.get('resource_id','')+' '+
                       node.get('class_name','')).casefold()
             strong_marker=bool(re.search(
                 r'bottom[_-]?sheet|dialog|modal|popup',identity))
             dimming=modal_dimming_evidence(
                 obs['png'],node['bounds'],decoded_luminance)
-            print(f"DEBUG unexpected_modal_back_gate: node {number} marker={strong_marker} dimming_confirmed={dimming['confirmed']}", flush=True)
+            debug_print(f"DEBUG unexpected_modal_back_gate: node {number} marker={strong_marker} dimming_confirmed={dimming['confirmed']}", flush=True)
             if strong_marker or dimming['confirmed']:
                 modal_roots.append((number,strong_marker,dimming))
-                print(f"DEBUG unexpected_modal_back_gate: ADDED node {number} to modal_roots", flush=True)
-    print(f"DEBUG unexpected_modal_back_gate: found {len(modal_roots)} modal roots", flush=True)
+                debug_print(f"DEBUG unexpected_modal_back_gate: ADDED node {number} to modal_roots", flush=True)
+    debug_print(f"DEBUG unexpected_modal_back_gate: found {len(modal_roots)} modal roots", flush=True)
     if not modal_roots:
         return None
     # Prefer an explicit modal marker, then the strongest luminance contrast.
@@ -2568,7 +2569,7 @@ def modal_dimming_evidence(png,bounds,decoded=None):
     confirmed = strong_contrast or thresholds_passed >= 3
 
     if not confirmed:
-        print(f"DEBUG modal_dimming: contrast={fg_median-bg_median}(need>=15/strong>=25) edge={inner_median-outer_median}(need>=10) dark={round(bg_dark_ratio,2)}(need>=0.30) bright={round(fg_bright_ratio,2)}(need>=0.15) passed={thresholds_passed}/4", flush=True)
+        debug_print(f"DEBUG modal_dimming: contrast={fg_median-bg_median}(need>=15/strong>=25) edge={inner_median-outer_median}(need>=10) dark={round(bg_dark_ratio,2)}(need>=0.30) bright={round(fg_bright_ratio,2)}(need>=0.15) passed={thresholds_passed}/4", flush=True)
 
     return {
         'confirmed':confirmed,
@@ -2644,7 +2645,7 @@ def prior_recovery_dismissal(history):
         for item in history
     )
     if result:
-        print(f'DEBUG prior_recovery_dismissal: FOUND recovery action, history_len={len(history)}',flush=True)
+        debug_print(f'DEBUG prior_recovery_dismissal: FOUND recovery action, history_len={len(history)}',flush=True)
     return result
 
 
@@ -2673,7 +2674,7 @@ def ignore_ungrounded_optional_after_back(
     # Check for dimming evidence - if modal is physically dimmed, it's real, don't ignore
     dimming_evidence = usage.get('dimming_evidence', {})
     if dimming_evidence.get('confirmed'):
-        print(f'DEBUG ignore_ungrounded: NOT ignoring - dimming evidence confirmed',flush=True)
+        debug_print(f'DEBUG ignore_ungrounded: NOT ignoring - dimming evidence confirmed',flush=True)
         return False
 
     if decision.get('action')!='blocked' or not any(
@@ -2682,7 +2683,7 @@ def ignore_ungrounded_optional_after_back(
         return False
     stable_screen=(current_restaurants_listing(obs) or
                    current_home_screen(obs))
-    print(f'DEBUG ignore_ungrounded: stable_screen={stable_screen}',flush=True)
+    debug_print(f'DEBUG ignore_ungrounded: stable_screen={stable_screen}',flush=True)
     if not stable_screen:
         return False
 
@@ -2690,11 +2691,11 @@ def ignore_ungrounded_optional_after_back(
     # about transient ungrounded claims on stable screens.
     prior_dismissal=prior_recovery_dismissal(history)
     if prior_dismissal:
-        print(f'DEBUG ignore_ungrounded: IGNORING due to prior recovery dismissal',flush=True)
+        debug_print(f'DEBUG ignore_ungrounded: IGNORING due to prior recovery dismissal',flush=True)
         return True
 
     text_evidence=explicit_optional_text_evidence(obs)
-    print(f'DEBUG ignore_ungrounded: has explicit text={text_evidence}, will ignore={not text_evidence}',flush=True)
+    debug_print(f'DEBUG ignore_ungrounded: has explicit text={text_evidence}, will ignore={not text_evidence}',flush=True)
     return not text_evidence
 
 
@@ -3029,7 +3030,7 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
             bordered_path = artifact_folder / f'{crop_name}-with-context.png'
             bordered.save(bordered_path)
 
-            print(f'DEBUG saved tap evidence: {crop_path.name}, target={target}, tap_point=({x},{y}), bounds=({left},{top},{right},{bottom})',flush=True)
+            debug_print(f'DEBUG saved tap evidence: {crop_path.name}, target={target}, tap_point=({x},{y}), bounds=({left},{top},{right},{bottom})',flush=True)
             return
         except ImportError:
             pass
@@ -3045,7 +3046,7 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved tap evidence (ImageMagick): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
+                debug_print(f'DEBUG saved tap evidence (ImageMagick): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -3061,7 +3062,7 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved tap evidence (ffmpeg): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
+                debug_print(f'DEBUG saved tap evidence (ffmpeg): {crop_name}.png, bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -3079,9 +3080,9 @@ def save_tap_evidence(obs, x, y, observation_index, artifact_folder=None, reason
             'capability': capability,
             'full_screenshot': full_path.name
         }, ensure_ascii=False, indent=2), encoding='utf-8')
-        print(f'DEBUG saved tap evidence (metadata): {crop_name}.json, bounds=({left},{top},{right},{bottom})',flush=True)
+        debug_print(f'DEBUG saved tap evidence (metadata): {crop_name}.json, bounds=({left},{top},{right},{bottom})',flush=True)
     except Exception as e:
-        print(f'DEBUG failed to save tap evidence: {e}',flush=True)
+        debug_print(f'DEBUG failed to save tap evidence: {e}',flush=True)
 
 def save_toggle_crop(obs, x, y, side, artifact_folder=None):
     """Save a cropped screenshot of the toggle area for visual evidence."""
@@ -3112,7 +3113,7 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
             cropped = img.crop((left, top, right, bottom))
             crop_path = artifact_folder / f'toggle-crop-{side}.png'
             cropped.save(crop_path)
-            print(f'DEBUG saved toggle crop (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
+            debug_print(f'DEBUG saved toggle crop (PIL): {crop_path}, bounds=({left},{top},{right},{bottom})',flush=True)
             return
         except ImportError:
             pass
@@ -3128,7 +3129,7 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved toggle crop (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
+                debug_print(f'DEBUG saved toggle crop (ImageMagick): bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -3144,7 +3145,7 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
                                  capture_output=True, timeout=10)
             Path(tmp_path).unlink(missing_ok=True)
             if result.returncode == 0:
-                print(f'DEBUG saved toggle crop (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
+                debug_print(f'DEBUG saved toggle crop (ffmpeg): bounds=({left},{top},{right},{bottom})',flush=True)
                 return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -3158,9 +3159,9 @@ def save_toggle_crop(obs, x, y, side, artifact_folder=None):
             'tap_point': [x, y],
             'full_screenshot': full_path.name
         }), encoding='utf-8')
-        print(f'DEBUG saved toggle screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
+        debug_print(f'DEBUG saved toggle screenshot + metadata: bounds=({left},{top},{right},{bottom})',flush=True)
     except Exception as e:
-        print(f'DEBUG failed to save toggle crop: {e}',flush=True)
+        debug_print(f'DEBUG failed to save toggle crop: {e}',flush=True)
 
 def locate_layout_toggle_visual(
         obs,plan,setup=False,artifact_folder=None):
@@ -3175,17 +3176,17 @@ def locate_layout_toggle_visual(
     global _toggle_position_cache
     import struct
     width,height=struct.unpack('>II',obs['png'][16:24])
-    print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}, has_hierarchy={bool(obs.get("nodes"))}',flush=True)
+    debug_print(f'DEBUG locate_layout_toggle_visual: setup={setup}, width={width}, height={height}, has_hierarchy={bool(obs.get("nodes"))}',flush=True)
 
     # Try to use cached positions first if hierarchy is unavailable
     has_hierarchy = bool(obs.get('nodes'))
     if not has_hierarchy and _toggle_position_cache:
-        print(f'DEBUG using cached toggle positions: {_toggle_position_cache}',flush=True)
+        debug_print(f'DEBUG using cached toggle positions: {_toggle_position_cache}',flush=True)
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
         x, y = _toggle_position_cache[side]
         view_name=transition['initial_name'] if setup else transition['target_name']
-        print(f'DEBUG using cached position: side={side}, x={x}, y={y}',flush=True)
+        debug_print(f'DEBUG using cached position: side={side}, x={x}, y={y}',flush=True)
         if setup:
             print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
             return ({
@@ -3218,20 +3219,20 @@ def locate_layout_toggle_visual(
                 not any(kw in row.get('text','').lower() for kw in banner_keywords) and
                 not row.get('text','')[0] in ui_control_chars and
                 (row.get('bounds',[])[2]-row.get('bounds',[])[0])<=max_heading_width)]
-    print(f'DEBUG found {len(titles)} heading candidates (y>=500, no banners/controls, width<50%): {[row.get("text") for row in titles[:3]]}',flush=True)
+    debug_print(f'DEBUG found {len(titles)} heading candidates (y>=500, no banners/controls, width<50%): {[row.get("text") for row in titles[:3]]}',flush=True)
     if not titles:
         raise Blocked('No heading text found for toggle grounding.')
 
     # Use topmost heading in content area (should be the list title like "Restaurants")
     title = min(titles, key=lambda row: row['bounds'][1])
-    print(f'DEBUG selected heading: text="{title.get("text")}", bounds={title.get("bounds")}',flush=True)
+    debug_print(f'DEBUG selected heading: text="{title.get("text")}", bounds={title.get("bounds")}',flush=True)
     title_x1, title_y1, title_x2, title_y2 = title['bounds']
     y=(title_y1+title_y2)//2
-    print(f'DEBUG heading: text="{title.get("text")}", bounds=[{title_x1},{title_y1},{title_x2},{title_y2}], y={y}',flush=True)
+    debug_print(f'DEBUG heading: text="{title.get("text")}", bounds=[{title_x1},{title_y1},{title_x2},{title_y2}], y={y}',flush=True)
 
     # Try to find toggles from hierarchy if available (they have resource IDs, not visible text)
     if has_hierarchy:
-        print(f'DEBUG trying to find toggles from hierarchy...',flush=True)
+        debug_print(f'DEBUG trying to find toggles from hierarchy...',flush=True)
         hierarchy_toggles = {}
         for node in obs.get('nodes', []):
             rid = node.get('resource_id', '').lower()
@@ -3251,19 +3252,19 @@ def locate_layout_toggle_visual(
                     # Determine side (left or right) based on x position relative to heading
                     side = 'left' if x < title_x1 else 'right'
                     hierarchy_toggles[side] = (x, y)
-                    print(f'DEBUG found heading-adjacent toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
+                    debug_print(f'DEBUG found heading-adjacent toggle: side={side}, resource_id={rid}, x={x}, y={y}',flush=True)
                 else:
-                    print(f'DEBUG skipping toggle (not near heading): resource_id={rid}, x={x}, y={y}, heading_y_dist={heading_y_range}',flush=True)
+                    debug_print(f'DEBUG skipping toggle (not near heading): resource_id={rid}, x={x}, y={y}, heading_y_dist={heading_y_range}',flush=True)
 
         if len(hierarchy_toggles) == 2:
-            print(f'DEBUG caching toggle positions from hierarchy: {hierarchy_toggles}',flush=True)
+            debug_print(f'DEBUG caching toggle positions from hierarchy: {hierarchy_toggles}',flush=True)
             _toggle_position_cache = hierarchy_toggles
             # Use the cached position now
             side = transition['initial_side'] if setup else transition['target_side']
             transition = parse_layout_transition(plan)
             x, y = _toggle_position_cache[side]
             view_name = transition['initial_name'] if setup else transition['target_name']
-            print(f'DEBUG using newly cached position: side={side}, x={x}, y={y}',flush=True)
+            debug_print(f'DEBUG using newly cached position: side={side}, x={x}, y={y}',flush=True)
             if setup:
                 print('Layout setup: idempotently targeting '+view_name+' view on '+side+'.',flush=True)
                 return ({
@@ -3301,10 +3302,10 @@ def locate_layout_toggle_visual(
             confidence>=0.7 and
             len(ocr_text.split())<=2):
             toggle_candidates.append(row)
-            print(f'DEBUG toggle candidate: "{ocr_text}" at [{ocr_x1},{ocr_y1},{ocr_x2},{ocr_y2}]',flush=True)
+            debug_print(f'DEBUG toggle candidate: "{ocr_text}" at [{ocr_x1},{ocr_y1},{ocr_x2},{ocr_y2}]',flush=True)
 
-    print(f'DEBUG all OCR texts (first 10): {all_ocr_texts[:10]}',flush=True)
-    print(f'DEBUG found {len(toggle_candidates)} toggle candidates',flush=True)
+    debug_print(f'DEBUG all OCR texts (first 10): {all_ocr_texts[:10]}',flush=True)
+    debug_print(f'DEBUG found {len(toggle_candidates)} toggle candidates',flush=True)
     if len(toggle_candidates)<2:
         # Fallback: toggles are typically positioned:
         # - To the RIGHT of the heading
@@ -3328,27 +3329,27 @@ def locate_layout_toggle_visual(
         # Use the middle of the heading's vertical range
         y = (title_y1 + title_y2) // 2
 
-        print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
-        print(f'DEBUG  - heading x-range: {title_x1}-{title_x2}, toggle x: {x}',flush=True)
-        print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y: {y} (aligned with heading)',flush=True)
+        debug_print(f'DEBUG fallback position: side={side}, setup={setup}, x={x}, y={y}',flush=True)
+        debug_print(f'DEBUG  - heading x-range: {title_x1}-{title_x2}, toggle x: {x}',flush=True)
+        debug_print(f'DEBUG  - heading y-range: {title_y1}-{title_y2}, button y: {y} (aligned with heading)',flush=True)
     else:
         # Score candidates by proximity to expected side
         transition=parse_layout_transition(plan)
         side=transition['initial_side'] if setup else transition['target_side']
-        print(f'DEBUG using OCR candidates: side={side}, setup={setup}',flush=True)
+        debug_print(f'DEBUG using OCR candidates: side={side}, setup={setup}',flush=True)
 
         # If looking for right side, prefer rightmost candidate
         # If looking for left side, prefer leftmost candidate
         if side=='right':
             toggle=max(toggle_candidates,key=lambda row:row['bounds'][0])
-            print(f'DEBUG selected rightmost candidate',flush=True)
+            debug_print(f'DEBUG selected rightmost candidate',flush=True)
         else:
             toggle=min(toggle_candidates,key=lambda row:row['bounds'][0])
-            print(f'DEBUG selected leftmost candidate',flush=True)
+            debug_print(f'DEBUG selected leftmost candidate',flush=True)
 
         x=(toggle['bounds'][0]+toggle['bounds'][2])//2
         y=(toggle['bounds'][1]+toggle['bounds'][3])//2
-        print(f'DEBUG selected toggle: text="{toggle.get("text")}", x={x}, y={y}',flush=True)
+        debug_print(f'DEBUG selected toggle: text="{toggle.get("text")}", x={x}, y={y}',flush=True)
     # Save visual evidence of toggle location
     save_toggle_crop(obs, x, y, side, artifact_folder)
 
@@ -3521,7 +3522,7 @@ def restaurants_ready_for_layout(obs,history,screenshot_context=False):
         and item['decision']['action']=='tap'
         for item in history
     )
-    print(f'DEBUG restaurants_ready_for_layout: navigated={navigated}, history_sources={[item.get("usage",{}).get("source") for item in history[-3:]]}',flush=True)
+    debug_print(f'DEBUG restaurants_ready_for_layout: navigated={navigated}, history_sources={[item.get("usage",{}).get("source") for item in history[-3:]]}',flush=True)
     if not navigated:
         return False
     # screenshot_context only enables hierarchy-free observation. It must not
@@ -3795,15 +3796,15 @@ def run_sequential_plan(
             }
         elif capability=='recover_optional':
             delivery_result = delivery_address_gate(obs,history)
-            print(f"DEBUG recovery: delivery_address_gate returned {delivery_result is not None}", flush=True)
+            debug_print(f"DEBUG recovery: delivery_address_gate returned {delivery_result is not None}", flush=True)
 
             message_result = in_app_message_gate(obs,history)
-            print(f"DEBUG recovery: in_app_message_gate returned {message_result is not None}", flush=True)
+            debug_print(f"DEBUG recovery: in_app_message_gate returned {message_result is not None}", flush=True)
 
             modal_result = unexpected_modal_back_gate(obs,history,plan,step_index)
-            print(f"DEBUG recovery: unexpected_modal_back_gate returned {modal_result is not None}", flush=True)
+            debug_print(f"DEBUG recovery: unexpected_modal_back_gate returned {modal_result is not None}", flush=True)
             if modal_result is not None:
-                print(f"DEBUG recovery: modal action = {modal_result[0].get('action')}", flush=True)
+                debug_print(f"DEBUG recovery: modal action = {modal_result[0].get('action')}", flush=True)
 
             known=(delivery_result or message_result or modal_result)
             if known is not None:
