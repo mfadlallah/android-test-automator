@@ -6,6 +6,30 @@ local Ollama model compiles it into a bounded JSON execution plan. Generic
 capabilities execute that plan using UIAutomator hierarchy, screenshots, Apple
 Vision OCR, deterministic safety gates, and ADB.
 
+### Hierarchy backend for busy screens
+
+Install the optional UIAutomator2 backend in the same Python environment:
+
+```bash
+python3 -m pip install -r requirements-hierarchy.txt
+python3 -m src.main --case cases/33271749-sort-restaurants-list.txt --hierarchy-backend uiautomator2
+```
+
+UIAutomator2 starts its device-side automation service over ADB; it does not
+require changes to the app under test. The first connection can take longer.
+The runner sets `waitForIdleTimeout=0`, requests uncompressed XML, and retains
+resource IDs and parent relationships. A separate worker bounds each snapshot
+to 25 seconds and rejects empty/malformed XML. Actions still use ADB; disabling
+idle waits does not prove UI stability or make an assertion pass.
+
+The default `--hierarchy-backend auto` prefers UIAutomator2 when installed;
+otherwise it uses `adb`. Use `--hierarchy-backend adb` for comparison runs.
+Do not run both automation backends concurrently on the same device.
+Service failure uses a fresh screenshot/OCR fallback instead of opening a
+competing legacy UIAutomation session. Backend timing and stdout/stderr are
+recorded in `NN-dump-commands.jsonl`. Legacy idle-state failures stop identical
+retries immediately; other legacy failures retain bounded retries.
+
 The design deliberately separates two concerns:
 
 - **AI decides intent:** translate the test case, understand unfamiliar UI,
@@ -23,7 +47,7 @@ flowchart TD
 
     EP --> OR[Orchestrator]
     OR --> OB[Current-screen observation]
-    OB --> UI[UIAutomator hierarchy]
+    OB --> UI[UIAutomator2 snapshot or legacy dump]
     OB --> OCR[Apple Vision OCR]
     OB --> SS[Screenshot]
 

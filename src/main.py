@@ -1,4 +1,4 @@
-"""Observe/decide/act Android PoC. Python standard library only."""
+"""Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
 import argparse
 import base64
 import hashlib
@@ -15,6 +15,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
+from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
 
 # Cache for toggle button positions learned from hierarchy observations
 # Format: {'left': (x, y), 'right': (x, y)} or None if not yet learned
@@ -190,8 +191,9 @@ def parse_nodes(xml, package, foreground_package=None):
     return nodes
 
 class Device:
-    def __init__(self, serial, package):
+    def __init__(self, serial, package, hierarchy_backend='adb'):
         self.serial, self.package = serial, package
+        self.hierarchy_backend=resolve_backend(hierarchy_backend)
         self.remote = '/data/local/tmp/agent-' + uuid.uuid4().hex + '.xml'
         self.observation_index = 0  # Track observation counter
         self.artifact_folder = None  # Set by orchestrator for stability waiting
@@ -220,6 +222,9 @@ class Device:
                 with Path(diagnostic_path).open('a',encoding='utf-8') as log:
                     log.write(json.dumps(record,ensure_ascii=False)+'\n')
         if p.returncode: raise Blocked('ADB failed: '+p.stderr.decode(errors='replace')[-600:])
+        if (args[:3]==('shell','uiautomator','dump') and
+                'could not get idle state' in decode(p.stderr).lower()):
+            raise Blocked('UIAutomator could not get idle state; XML was not created')
         return p.stdout if binary else p.stdout.decode(errors='replace')
     def foreground_package(self):
         """Return the package owning the resumed window on this device."""
@@ -262,7 +267,7 @@ class Device:
                 'hierarchy_unavailable':True,'fast_probe':True}
     def observe(self, folder, index, allow_screenshot_only=False):
         # Skip hierarchy dump entirely when we know UIAutomator is unavailable
-        if allow_screenshot_only:
+        if allow_screenshot_only and self.hierarchy_backend=='adb':
             return self.observe_screenshot_only(folder, index)
 
         stem = folder / f'{index:02d}'
@@ -284,6 +289,18 @@ class Device:
         # the sequential executor will probe UIAutomator again on its next
         # observation while this one can still use screenshot/OCR safely.
         max_attempts = 3
+        diagnostics.append('Hierarchy backend: '+self.hierarchy_backend)
+        if self.hierarchy_backend=='uiautomator2':
+            # Do not run competing shell UIAutomation sessions when the
+            # service is active. Failure uses a fresh screenshot fallback.
+            max_attempts=0
+            try:
+                xml=capture_hierarchy(self.serial,stem.with_suffix('.xml'),command_log)
+                nodes=parse_nodes(xml,self.package,
+                                  foreground_package=self.foreground_package())
+                diagnostics.append('UIAutomator2 snapshot parsed nodes: '+str(len(nodes)))
+            except (RuntimeError,OSError,ET.ParseError) as exc:
+                diagnostics.append('UIAutomator2 snapshot unavailable: '+str(exc))
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -336,6 +353,9 @@ class Device:
                 err_msg = f'{type(exc).__name__}: {str(exc)}'
                 diagnostics.append(err_msg)
                 print(f"DEBUG observe() attempt {attempt}/{max_attempts} failed: {err_msg}", flush=True)
+                if 'could not get idle state' in str(exc).lower():
+                    diagnostics.append('Idle-state failure detected; skipping identical retries.')
+                    break
                 if attempt < max_attempts:
                     # Clean up only after an actual failed dump, never before
                     # the healthy path.  Failure is tolerated because some
@@ -369,9 +389,9 @@ class Device:
             nodes = []
             if dump_failed:
                 diagnostics.append(
-                    'Hierarchy dump remained unavailable after bounded '
-                    'retries; continuing this observation with screenshot/OCR. '
-                    'The next plan observation will retry full hierarchy.')
+                    'Selected hierarchy backend remained unavailable; '
+                    'continuing this observation with screenshot/OCR. '
+                    'The next plan observation will retry the selected backend.')
                 print(
                     'Recovery: UI hierarchy temporarily unavailable; using '
                     'bounded screenshot/OCR fallback for this observation.',
@@ -4065,6 +4085,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--app-id',default='com.hungerstation.android.web.debug')
     p.add_argument('--serial'); p.add_argument('--case',type=Path,required=True,help='Path to test case file (e.g., cases/33271749-sort-restaurants-list.txt)')
+    p.add_argument('--hierarchy-backend',choices=('auto','adb','uiautomator2'),default='auto',
+                   help='auto prefers installed UIAutomator2; adb uses the legacy shell dump')
     p.add_argument('--model',default=os.environ.get('OLLAMA_MODEL','qwen2.5vl:3b'))
     p.add_argument('--max-steps',type=int,default=25)
     p.add_argument('--attempts',type=int,default=3,
@@ -4099,7 +4121,11 @@ def main():
         serials=[line.split()[0] for line in r.stdout.splitlines() if line.strip().endswith('\tdevice')]
         serial=args.serial or (serials[0] if len(serials)==1 else None)
         if not serial or serial not in serials: raise Blocked('Connect one ready device or specify --serial')
-        device=Device(serial,args.app_id)
+        try:
+            device=Device(serial,args.app_id,args.hierarchy_backend)
+        except RuntimeError as exc:
+            raise Blocked(str(exc)) from exc
+        print('Hierarchy backend: '+device.hierarchy_backend,flush=True)
         if not device.adb('shell','pm','path',args.app_id).strip().startswith('package:'): raise Blocked('App not installed')
         if shutil.disk_usage(ROOT).free<500*1024*1024: raise Blocked('Free at least 500 MB before running')
         if not args.observe_only: check_model(args.model,not args.no_images)

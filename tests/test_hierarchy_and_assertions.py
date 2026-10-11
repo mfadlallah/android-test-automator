@@ -77,7 +77,7 @@ class HierarchyParsingTests(unittest.TestCase):
             self.assertTrue(observation['hierarchy_unavailable'])
             self.assertTrue((Path(temporary)/'04.png').exists())
             log=(Path(temporary)/'04-dump-log.txt').read_text()
-            self.assertIn('bounded retries',log)
+            self.assertIn('Selected hierarchy backend remained unavailable',log)
         self.assertEqual(3,sum(
             args[:3]==('shell','uiautomator','dump') for args in calls))
         # Cleanup is recovery-only; it must never precede the first dump.
