@@ -760,3 +760,9 @@ Unexpected-modal safety: screen brightness differences alone do not authorize An
 Modal assertions reuse the recovery layer's explicit modal-container markers and ground the requested heading inside that container. The executor retains the container/heading resource IDs when a titled modal is observed. A later hidden assertion can establish closure from a fresh populated hierarchy where both identities and modal containers are absent; a same-name launcher button does not count as the sheet. Missing or ambiguous hierarchy still uses visual assessment. Unmarked custom modals require visual grounding rather than an automatic absence verdict.
 
 Selection assertions use the target's checked/selected state or a radio/checkbox/switch in the same immediate option row. Model fallback must describe selected/checked state; label visibility alone is rejected. Grounded state results are recorded in the normal decision and step artifacts without another model request.
+
+### Scoped before/after changes
+
+The sequential executor retains the unobstructed screen immediately before a hierarchy-grounded modal workflow. `wait_changed`/`assert_changed` use that baseline instead of the sheet visible just before Apply. Each side is scoped independently to the requested target. Named item fields can establish changed identities/order locally; unchanged content does not pass. Other ambiguous changes use a single side-by-side comparison image (BEFORE left, CURRENT right) plus scoped hierarchy/OCR. Missing baseline blocks rather than proving change from current visibility alone.
+
+Change artifacts include `*-change-step-*-before.png`, `*-current.png`, comparison metadata JSON, and a combined `*-comparison.png` when visual assessment is needed. These assertions verify content change, not correctness of numeric sorting. Custom modal workflows without hierarchy markers still require improved baseline grounding; no app/domain-specific identifiers are configured.

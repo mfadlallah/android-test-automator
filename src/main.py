@@ -15,6 +15,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
+from .change_evidence import ModalBaseline, collection_change
 from .state_assertions import modal_assertion, selected_assertion
 from .model_evidence import compact_chat_request, context_overflow
 from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
@@ -1467,10 +1468,47 @@ def assess_plan_assertion(
     messages.append({'role':'user','content':'Assertion step: '+json.dumps(
         step,ensure_ascii=False,separators=(',',':'))})
     comparative=step.get('capability') in {'wait_changed','assert_changed'}
+    if comparative and not before:
+        return {'status':'blocked','reason':'No retained before observation for the requested change assertion.',
+                'evidence':'A current screenshot alone cannot prove a before/current change.'}
     observations=([('BEFORE',before)] if comparative and before else [])
     observations.append(('CURRENT',obs))
     current_image,crop_bounds=(scoped_assertion_image(obs,step)
                                if vision else (obs.get('png',b''),None))
+    before_bounds=assertion_crop_bounds(before,step) if comparative and before else None
+    if comparative and before:
+        local_change,comparison=collection_change(before,obs,before_bounds,crop_bounds)
+        if artifact_folder:
+            prefix=Path(artifact_folder)/f"{obs.get('observation',0):02d}-change-step-{re.sub(r'[^A-Za-z0-9_-]','-',str(step.get('id','change')))}"
+            metadata={'target':step.get('target'), 'before_bounds':before_bounds,
+                      'current_bounds':crop_bounds,'comparison':comparison}
+            try:
+                from PIL import Image
+                import io
+                for label,item,bounds in [('before',before,before_bounds),('current',obs,crop_bounds)]:
+                    if bounds:
+                        Image.open(io.BytesIO(item['png'])).crop(tuple(bounds)).save(str(prefix)+'-'+label+'.png')
+            except (ImportError,OSError,ValueError):
+                pass
+            Path(str(prefix)+'.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding='utf-8')
+        if local_change:
+            return local_change
+        # One comparison image avoids multi-image limitations of local runners.
+        if vision and before_bounds and crop_bounds:
+            try:
+                from PIL import Image
+                import io
+                old=Image.open(io.BytesIO(before['png'])).crop(tuple(before_bounds)).convert('RGB')
+                current=Image.open(io.BytesIO(obs['png'])).crop(tuple(crop_bounds)).convert('RGB')
+                old.thumbnail((900,1400)); current.thumbnail((900,1400))
+                pair=Image.new('RGB',(old.width+current.width,max(old.height,current.height)), 'white')
+                pair.paste(old,(0,0)); pair.paste(current,(old.width,0))
+                output=io.BytesIO();pair.save(output,format='PNG');current_image=output.getvalue()
+                messages.append({'role':'user','content':'Comparison image: LEFT is BEFORE, RIGHT is CURRENT. Both show the scoped target. Compare item identities/order; ignore clocks, banners and transient loading. Unchanged content is not a pass.'})
+                if artifact_folder:
+                    pair.save(str(prefix)+'-comparison.png')
+            except (ImportError,OSError,ValueError):
+                pass
     crop_metadata_path=None
     crop_metadata=None
     if crop_bounds and artifact_folder:
@@ -1591,7 +1629,7 @@ def assess_plan_assertion(
 
     for label,item in observations:
         if item:
-            compact_bounds=crop_bounds if label=='CURRENT' else None
+            compact_bounds=crop_bounds if label=='CURRENT' else before_bounds
             evidence=compact_assertion_observation(
                 item,step,compact_bounds)
             if label=='CURRENT' and crop_ocr:
@@ -1609,8 +1647,8 @@ def assess_plan_assertion(
             if vision and label=='CURRENT':
                 if crop_bounds:
                     message['content']+=(
-                        ' CURRENT image is a magnified crop of the scoped '
-                        'target bounds '+json.dumps(crop_bounds)+'.')
+                        (' Comparison image shows BEFORE left/CURRENT right for the scoped ' if comparative and before_bounds else ' CURRENT image is a magnified crop of the scoped ')
+                        +'target bounds '+json.dumps(crop_bounds)+'.')
                 message['images']=[base64.b64encode(current_image).decode()]
             messages.append(message)
     last_error='Invalid local assertion result.'
@@ -3692,6 +3730,7 @@ def run_sequential_plan(
     _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; last_action_obs=None; step_index=0
     modal_identities={}
+    change_baseline=ModalBaseline()
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
 
@@ -3725,6 +3764,7 @@ def run_sequential_plan(
             history,previous,next_step)
         obs=device.observe(folder,observation_index,allow_screenshot)
         obs['ocr']=read_screen_ocr(obs)
+        change_baseline.observe(obs)
         (folder/f'{observation_index:02d}-screen-ocr.json').write_text(
             json.dumps(obs['ocr'],ensure_ascii=False,indent=2),encoding='utf-8')
         if step_index>=len(steps):
@@ -3876,7 +3916,9 @@ def run_sequential_plan(
                 }
             elif not grounded_state and not current_home_screen(obs):
                 try:
-                    result=assertion_assessor(step,obs,last_action_obs)
+                    result=assertion_assessor(step,obs,
+                        (change_baseline.before or last_action_obs)
+                        if capability in {'wait_changed','assert_changed'} else last_action_obs)
                 except Blocked as exc:
                     result={
                         'status':'blocked','reason':str(exc),
@@ -3931,6 +3973,8 @@ def run_sequential_plan(
                         'in_app_message_gate','unexpected_modal_back_gate'}):
                 last_action_obs=obs
         if advance:
+            if capability in {'wait_changed','assert_changed'}:
+                change_baseline.consume()
             step_index+=1
             if step_index>=len(steps) and action=='step_pass':
                 return finish('PASSED','All structured plan steps passed.',
