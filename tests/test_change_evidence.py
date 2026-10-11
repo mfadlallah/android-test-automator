@@ -1,5 +1,5 @@
 import unittest
-from src.change_evidence import ModalBaseline,collection_change
+from src.change_evidence import ModalBaseline,collection_change,collection_visible
 
 
 class ChangeEvidenceTests(unittest.TestCase):
@@ -35,3 +35,15 @@ class ChangeEvidenceTests(unittest.TestCase):
             return {'nodes':[{'resource_id':'app:id/product_name','text':name,'bounds':[10,100,150,180]}]}
         result,_=collection_change(obs('One'),obs('Two'),[0,90,200,400],[0,90,200,400])
         self.assertEqual(result['status'],'passed')
+
+    def test_collection_visible_needs_container_and_content(self):
+        bounds=[0,100,200,400]
+        obs={'nodes':[{'node':1,'scrollable':True,'bounds':bounds},
+            {'node':2,'parent':1,'resource_id':'app:id/product_name','text':'One','bounds':[10,120,100,150]}]}
+        step={'capability':'assert_visible','target':'refreshed product items'}
+        self.assertEqual(collection_visible(step,obs,bounds)['status'],'passed')
+        obs['nodes'][0]['scrollable']=False
+        self.assertIsNone(collection_visible(step,obs,bounds))
+        obs['nodes'][0]['scrollable']=True
+        obs['nodes'].append({'resource_id':'app:id/dialog'})
+        self.assertIsNone(collection_visible(step,obs,bounds))

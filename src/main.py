@@ -15,7 +15,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
-from .change_evidence import ModalBaseline, collection_change
+from .change_evidence import ModalBaseline, collection_change, collection_visible
 from .state_assertions import modal_assertion, selected_assertion
 from .model_evidence import compact_chat_request, context_overflow
 from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
@@ -703,6 +703,8 @@ such as "first product item" or "first restaurant item" means only the first
 visible item in the grounded target list, not the whole screen. For
 assert_not_contains, pass only when the target container is clearly visible
 and inspected; an OCR/accessibility miss on its own is not evidence of absence.
+For assert_visible prove visibility of the requested target. Do not discuss absence
+of an expected value when this assertion has no value.
 For assert_selected require checked/selected accessibility state
 or an unambiguous visual selected state. For assert_hidden ensure the target
 sheet/container is absent while its destination screen is visible. For
@@ -1590,7 +1592,8 @@ def assess_plan_assertion(
     # Re-run OCR on every grounded label crop. Besides exact contains checks,
     # this gives the model high-resolution textual evidence for visibility,
     # hidden-state and selected-state assertions.
-    deterministic=scoped_exact_value_result(obs,step,crop_bounds)
+    deterministic=(collection_visible(step,obs,crop_bounds)
+                   or scoped_exact_value_result(obs,step,crop_bounds))
     crop_ocr=[]
     if deterministic is None and crop_bounds:
         try:

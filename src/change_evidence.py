@@ -51,3 +51,19 @@ def collection_change(before, current, before_bounds, current_bounds):
                 'reason': 'Scoped collection item identities/order changed between before and current.',
                 'evidence': 'Before: '+repr(old[rid])+'; current: '+repr(new[rid])+'. Item identity field: '+rid}, {'field': rid, 'before': old[rid], 'current': new[rid]}
     return None, {'before_fields': old, 'current_fields': new}
+
+
+def collection_visible(step, obs, bounds):
+    import re
+    if step.get('capability')!='assert_visible' or not re.search(r'\b(?:items|list|collection|results)\b',step.get('target',''),re.I):
+        return None
+    if not bounds or any(strong_modal_candidate(n) for n in obs.get('nodes',[])):
+        return None
+    # The crop must correspond to an actual visible scrollable container.
+    containers=[n for n in obs.get('nodes',[]) if n.get('scrollable')
+                and list(n.get('bounds',[]))==list(bounds)]
+    names=repeated_item_titles(obs,bounds)
+    if not containers or not names:
+        return None
+    return {'status':'passed', 'reason':step['target']+' is visible with grounded item content.',
+            'evidence':'A visible scrollable container contains named item content: '+repr(names)}
