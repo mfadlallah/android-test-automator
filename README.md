@@ -6,6 +6,36 @@ local Ollama model compiles it into a bounded JSON execution plan. Generic
 capabilities execute that plan using UIAutomator hierarchy, screenshots, Apple
 Vision OCR, deterministic safety gates, and ADB.
 
+### Hierarchy backend for busy screens
+
+Install the optional UIAutomator2 backend in the same Python environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements-hierarchy.txt
+python3 -m src.main --case cases/33271749-sort-restaurants-list.txt --hierarchy-backend uiautomator2
+```
+
+Activate `.venv` in each new terminal before running the agent. This also
+avoids Homebrew's `externally-managed-environment` restriction; do not bypass
+it with `--break-system-packages`.
+
+UIAutomator2 starts its device-side automation service over ADB; it does not
+require changes to the app under test. The first connection can take longer.
+The runner sets `waitForIdleTimeout=0`, requests uncompressed XML, and retains
+resource IDs and parent relationships. A separate worker bounds each snapshot
+to 25 seconds and rejects empty/malformed XML. Actions still use ADB; disabling
+idle waits does not prove UI stability or make an assertion pass.
+
+The default `--hierarchy-backend auto` prefers UIAutomator2 when installed;
+otherwise it uses `adb`. Use `--hierarchy-backend adb` for comparison runs.
+Do not run both automation backends concurrently on the same device.
+Service failure uses a fresh screenshot/OCR fallback instead of opening a
+competing legacy UIAutomation session. Backend timing and stdout/stderr are
+recorded in `NN-dump-commands.jsonl`. Legacy idle-state failures stop identical
+retries immediately; other legacy failures retain bounded retries.
+
 The design deliberately separates two concerns:
 
 - **AI decides intent:** translate the test case, understand unfamiliar UI,
@@ -23,7 +53,7 @@ flowchart TD
 
     EP --> OR[Orchestrator]
     OR --> OB[Current-screen observation]
-    OB --> UI[UIAutomator hierarchy]
+    OB --> UI[UIAutomator2 snapshot or legacy dump]
     OB --> OCR[Apple Vision OCR]
     OB --> SS[Screenshot]
 
@@ -362,12 +392,15 @@ label/resource/OCR grounding performs actions, while the local vision model
 performs read-only scoped assertions. Negative assertions require the target
 container itself to be visible, and the run cannot pass until every required
 step has evidence. The two layout-transition cases continue to use their
-hardened layout adapter.
+validated capability steps through the same generic adapter.
 
 After a verified optional sheet is dismissed by either Android Back or a
 grounded close-button tap, the sequential executor temporarily tolerates an
-unavailable accessibility hierarchy and continues from screenshot/OCR. The
-fallback remains active only while hierarchy is unavailable; ordinary taps do
+unavailable accessibility hierarchy and continues from screenshot/OCR. For a
+valid dump from a non-launcher or externally owned foreground activity, the
+observer selects the runtime foreground package and keeps a correctly indexed
+parent/child tree instead of discarding the hierarchy. Screenshot fallback
+remains active only while hierarchy is genuinely unavailable; ordinary taps do
 not authorize it.
 
 Recovery has a screen-independent safety invariant: one recovery step may not
@@ -391,11 +424,11 @@ attempt that explicitly asks the model to reinspect the scoped target and
 small/low-contrast badges. The guard remains strict after that retry.
 Every label-based assertion (`visible`, `hidden`, `selected`, `contains`, and
 `not_contains`) first grounds its target using accessibility text, resource ID,
-or OCR, then crops and adaptively magnifies that region with the built-in macOS
-`sips` tool before local OCR and vision inference. Tight pills and labels receive
-more zoom than full-width list items, with a 1600-pixel cap to keep Ollama
-prompts bounded. Assertions scoped to a `first ... item/card/row` use the first
-grounded list child or visible filter anchor instead of the whole screen.
+or OCR, then crops and adaptively magnifies that region with Pillow, with macOS
+`sips` as fallback, before local OCR and vision inference. Tight pills and
+labels receive more zoom than full-width list items, with a 1600-pixel cap to
+keep Ollama prompts bounded. Assertions scoped to a `first ... item/card/row`
+use the first grounded child of the matched list instead of the whole screen.
 
 Visible action labels are never semantically reversed. For example, a case that
 requests `Ratings (low to high)` is blocked when the app exposes only
@@ -613,12 +646,13 @@ or content inside the asserted region.
 `contains` and `not_contains` assertions enforce evidence polarity for both
 PASS and FAIL. A positive assertion cannot pass with wording such as `Ad is not
 present`, and a negative assertion cannot fail using that same proof of
-absence. For a first restaurant item, the runner crops the first direct
-`vendorsRecycler` child and reruns local Apple Vision OCR on the adaptively
-magnified crop. An exact scoped OCR/accessibility match can pass without an
-Ollama call; OCR absence alone never proves a negative assertion. Scoped OCR is
-also supplied for other grounded label assertions and stored beside the crop as
-`*-crop-ocr.json` when available.
+absence. For any `first ... item` target, the runner finds the matching
+scrollable container, crops its first visible item, and reruns local Apple
+Vision OCR on the adaptively magnified crop. An exact scoped
+OCR/accessibility match can pass a positive assertion—or fail a negative
+assertion—without an Ollama call. OCR absence alone never proves a negative
+assertion. Scoped OCR is also supplied for other grounded label assertions and
+stored beside the crop as `*-crop-ocr.json` when available.
 When accessibility is transiently unavailable, combined OCR rows such as
 `Filters 1` ground both the labelled target and its adjacent counter, so the
 same scoped crop and deterministic value check still run.
@@ -683,3 +717,38 @@ The Python runner uses only the standard library. Tests cover plan validation,
 capability extraction, navigation, multiple interruptions, false-positive
 recovery, idempotent control setup, layout verification, current-screen safety,
 and screenshot-based scrolling.
+
+### OCR fallback for first-item label assertions
+
+When the hierarchy is unavailable, the generic adapter estimates the first
+item from a heading/controls OCR band and looks for an image-background
+separator after the item text. It supports compact rows and image cards
+without product names, resource IDs, fixed item heights, or a fixed background
+color. Exact observed labels use deterministic contains polarity and receive
+a tighter context crop. An OCR miss does not prove absence: an unconfirmed
+item boundary blocks both contains assertions; confirmed scopes still require
+visual assessment when OCR is inconclusive. This is bounded layout support,
+not a guarantee for grids, overlapping content, or every UI structure.
+
+Assertion JSON records `item_scope` (source, bounds and boundary confidence)
+alongside the crop and original screenshot. Full hierarchy probing resumes on
+subsequent observations.
+
+If metadata resembles another item title, a visual card-gap fallback checks
+for a continuous background gap at the card edges followed by a broad next
+surface. It does not depend on item names, label values, or background colors.
+Uncertain boundaries still block the assertion. Each observation also saves
+`NN-screen-ocr.json` with the full OCR text, bounds, and confidence for diagnosis.
+
+Hierarchy diagnostics are saved in `NN-dump-commands.jsonl`: each dump attempt
+records its command, UTC start time, duration, exit code, timeout state, and
+complete stdout/stderr (including stderr on exit code zero and partial output
+on timeout). The file also includes bounded activity/window snapshots at the
+start of the observation. These diagnostics identify dump failures without
+changing assertion outcomes or hiding the existing screenshot/OCR fallback.
+
+### Bounded local-model evidence
+
+Planning runs before execution. Runtime model calls remain available for ambiguous recovery and visual assertions; ordinary actions are executed by Python with grounded evidence. Recovery requests send compact node fields and the last three action summaries rather than full execution records. Node IDs, parents, labels, resource IDs, bounds, explicit state booleans and screenshots are retained; complete observations remain in artifacts.
+
+If Ollama reports a context-size HTTP 400, the client retries once with compact JSON evidence. It preserves the plan, assertion polarity/value, system instructions, output schema and images. Other HTTP errors are not retried. If the compact request still exceeds context, the run blocks rather than discarding visual evidence or weakening assertions. This does not guarantee a context fit for arbitrarily large screens.

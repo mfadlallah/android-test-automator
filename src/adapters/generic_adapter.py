@@ -8,6 +8,8 @@ Instead, it relies on:
 - Generic accessibility hierarchy + OCR grounding
 """
 
+import io
+import re
 import struct
 from typing import Dict, Any, Optional, Set, Tuple, List
 from .base_adapter import DomainAdapter, BoundingBox
@@ -54,7 +56,8 @@ class GenericAdapter(DomainAdapter):
         if not target:
             return None
 
-        target_lower = target.lower()
+        target_lower = self._normalize_text(target)
+        target_tokens = self._semantic_tokens(target)
 
         # Try exact OCR match first
         for row in observation.get('ocr', []):
@@ -64,28 +67,32 @@ class GenericAdapter(DomainAdapter):
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
-        # Try partial OCR match
+        # Try token-aware OCR match.  Never use reverse substring matching:
+        # a one-character status label such as "M" must not ground
+        # "first restaurant item" merely because that letter occurs in it.
         for row in observation.get('ocr', []):
-            ocr_text = ' '.join(row.get('text', '').split()).casefold()
-            if target_lower in ocr_text or ocr_text in target_lower:
+            ocr_text = self._normalize_text(row.get('text',''))
+            ocr_tokens = self._semantic_tokens(ocr_text)
+            if self._tokens_match(target_tokens,ocr_tokens):
                 bounds = row.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
         # Try accessibility hierarchy
         for node in observation.get('nodes', []):
-            node_text = (node.get('text', '') or '').lower()
-            node_desc = (node.get('description', '') or '').lower()
+            node_text = self._normalize_text(node.get('text',''))
+            node_desc = self._normalize_text(node.get('description',''))
 
             if node_text == target_lower or node_desc == target_lower:
                 bounds = node.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
 
-        # Try partial hierarchy match
+        # Try token-aware hierarchy match.
         for node in observation.get('nodes', []):
-            node_text = (node.get('text', '') or '').lower()
-            if target_lower in node_text:
+            node_tokens = self._semantic_tokens(
+                str(node.get('text',''))+' '+str(node.get('description','')))
+            if self._tokens_match(target_tokens,node_tokens):
                 bounds = node.get('bounds', [])
                 if len(bounds) == 4:
                     return BoundingBox(*bounds)
@@ -149,9 +156,7 @@ class GenericAdapter(DomainAdapter):
         # might not find a direct keyword match
         largest = self._find_largest_scrollable(observation)
         if largest:
-            bounds = largest.get('bounds', [])
-            if len(bounds) == 4:
-                return BoundingBox(*bounds)
+            return largest
 
         return None
 
@@ -171,6 +176,50 @@ class GenericAdapter(DomainAdapter):
         """
         target_lower = (target or '').lower()
 
+        # Collection phrases are structural intent, not literal labels.  For
+        # example, "refreshed restaurant items" must resolve to the list
+        # viewport, never to a search field that happens to contain the word
+        # "restaurant".
+        if 'first' not in target_lower and self._is_collection_target(target):
+            collection = self.find_scrollable_region(target, observation)
+            if collection:
+                png = observation.get('png', b'')
+                screen_dims=(None,None)
+                if len(png) >= 24:
+                    screen_dims=struct.unpack('>II',png[16:24])
+                width,height=screen_dims
+                near_full_screen=(
+                    width and height and
+                    (collection.x2-collection.x1)*(collection.y2-collection.y1)
+                    >= width*height*.85)
+                if not near_full_screen:
+                    print(
+                        'DEBUG adapter.get_assertion_crop: '
+                        f'Using collection bounds for "{target}": '
+                        f'({collection.x1}, {collection.y1}, '
+                        f'{collection.x2}, {collection.y2})',
+                        flush=True,
+                    )
+                    return collection
+                print(
+                    'DEBUG adapter.get_assertion_crop: ignored near-full-screen '
+                    f'collection candidate for "{target}"',flush=True)
+
+            png = observation.get('png', b'')
+            if len(png) >= 24:
+                width, height = struct.unpack('>II', png[16:24])
+                estimated = self._estimate_first_item_from_ocr(
+                    target, observation, (width, height))
+                if estimated:
+                    print(
+                        'DEBUG adapter.get_assertion_crop: '
+                        f'Using OCR collection bounds for "{target}": '
+                        f'{estimated}',
+                        flush=True,
+                    )
+                    return BoundingBox(*estimated)
+            return None
+
         # Check if this is a "first item" assertion
         if 'first' not in target_lower:
             # For non-first-item assertions, use full screen or grounded target
@@ -180,17 +229,23 @@ class GenericAdapter(DomainAdapter):
         scrollable = self.find_scrollable_region(target, observation)
         if not scrollable:
             print(f'DEBUG adapter.get_assertion_crop: No scrollable found for "{target}", using semantic fallback', flush=True)
-            # Fallback: use semantic detection to find the target region
-            semantic_bounds = self._ground_assertion_target(target, observation, step)
-            if semantic_bounds:
-                return semantic_bounds
-            # Ultimate fallback: use full screen width, top portion for first item
+            # A phrase such as "first product item" is structural intent, not
+            # a literal visible label.  Estimate the first content row from
+            # OCR layout instead of matching arbitrary substrings on screen.
             png = observation.get('png', b'')
             if len(png) >= 24:
-                import struct
                 width, height = struct.unpack('>II', png[16:24])
-                # Estimate first item in top third of screen
-                return BoundingBox(0, int(height * 0.15), width, int(height * 0.35))
+                estimated=self._estimate_first_item_from_ocr(
+                    target,observation,(width,height))
+                if estimated:
+                    region=tuple(estimated)
+                    label=self._find_label_in_region(
+                        observation,step.get('value',''),region)
+                    if label and step.get('capability') in {
+                            'assert_contains','assert_not_contains'}:
+                        return BoundingBox(*self._expand_label_bounds(
+                            label,region,(width,height)))
+                    return BoundingBox(*region)
             return None
 
         sx1, sy1, sx2, sy2 = scrollable.x1, scrollable.y1, scrollable.x2, scrollable.y2
@@ -226,7 +281,8 @@ class GenericAdapter(DomainAdapter):
                     observation, expected_label, (fx1, fy1, fx2, fy2)
                 )
                 if label_bounds:
-                    return BoundingBox(*label_bounds)
+                    return BoundingBox(*self._expand_label_bounds(
+                        label_bounds,(fx1,fy1,fx2,fy2),(width,height)))
 
                 # If label not found, return full item bounds so model can assess
                 # whether the expected value is present or absent in the item.
@@ -271,6 +327,245 @@ class GenericAdapter(DomainAdapter):
 
     # ============= Private Helper Methods =============
 
+    _STRUCTURAL_WORDS={
+        'first','item','items','card','cards','row','rows','result','results',
+        'list','container','section','visible','refreshed','vertical','horizontal',
+        'the','a','an','of','in','on','with','screen','view',
+    }
+
+    def _normalize_text(self,value: str) -> str:
+        return ' '.join(str(value or '').split()).casefold()
+
+    def _semantic_tokens(self,value: str) -> Set[str]:
+        normalized=re.sub(r'[^\w]+',' ',self._normalize_text(value),
+                          flags=re.UNICODE)
+        return {
+            token for token in normalized.split()
+            if len(token)>=2 and token not in self._STRUCTURAL_WORDS
+        }
+
+    def _tokens_match(self,expected: Set[str],observed: Set[str]) -> bool:
+        if not expected or not observed:
+            return False
+        return expected <= observed or (
+            len(expected)==1 and len(observed)==1 and
+            next(iter(expected)).rstrip('s')==next(iter(observed)).rstrip('s')
+        )
+
+    def _is_collection_target(self, target: str) -> bool:
+        """Return whether a test target describes a collection structure."""
+        words=set(re.findall(r'[\w]+',self._normalize_text(target),re.UNICODE))
+        return bool(words & {
+            'item','items','list','lists','result','results','collection',
+            'feed','rows','cards','recyclerview','listview',
+        })
+
+    def _estimate_first_item_from_ocr(
+        self,
+        target: str,
+        observation: Dict[str,Any],
+        screenshot_dims: Tuple[int,int]
+    ) -> Optional[List[int]]:
+        """Estimate the first list item from generic OCR layout evidence.
+
+        The last dense horizontal OCR band below a semantic heading is treated
+        as the controls row.  The first content item begins below that band.
+        This is used only while accessibility hierarchy is unavailable.
+        """
+        width,height=screenshot_dims
+        rows=[]
+        for row in observation.get('ocr',[]):
+            bounds=row.get('bounds',[])
+            if (not isinstance(bounds,(list,tuple)) or len(bounds)!=4
+                    or row.get('confidence',0)<.55):
+                continue
+            x1,y1,x2,y2=bounds
+            if x2<=x1 or y2<=y1 or y2<height*.12 or y1>height*.72:
+                continue
+            rows.append(row)
+        if not rows:
+            return None
+
+        target_tokens=self._semantic_tokens(target)
+        anchors=[]
+        for row in rows:
+            observed=self._semantic_tokens(row.get('text',''))
+            if self._tokens_match(target_tokens,observed):
+                anchors.append(row)
+        anchor_bottom=max(
+            (row['bounds'][3] for row in anchors),default=round(height*.25))
+
+        # Group OCR rows into horizontal bands.  Multiple labels on the same
+        # band usually describe tabs, chips, filters, or other list controls.
+        bands=[]
+        for row in sorted(rows,key=lambda item:(
+                (item['bounds'][1]+item['bounds'][3])//2,item['bounds'][0])):
+            center=(row['bounds'][1]+row['bounds'][3])//2
+            for band in bands:
+                if abs(center-band['center'])<=max(36,height*.018):
+                    band['rows'].append(row)
+                    centers=[(item['bounds'][1]+item['bounds'][3])//2
+                             for item in band['rows']]
+                    band['center']=sum(centers)//len(centers)
+                    break
+            else:
+                bands.append({'center':center,'rows':[row]})
+
+        control_bottom=anchor_bottom
+        for band in bands:
+            band_bottom=max(row['bounds'][3] for row in band['rows'])
+            if (len(band['rows'])>=2 and band_bottom>anchor_bottom
+                    and band_bottom<=height*.58):
+                control_bottom=band_bottom
+                break
+
+        # A grounded controls/heading band, rather than a fixed screen fraction,
+        # supports compact rows and large image cards at different positions.
+        if not anchors and control_bottom==anchor_bottom:
+            return None
+        start=control_bottom+max(4,round(height*.015))
+        content=[row for row in observation.get('ocr',[])
+                 if row.get('confidence',0)>=.55
+                 and len(row.get('bounds',[]))==4
+                 and row['bounds'][1]>=start
+                 and row['bounds'][3]<height*.94]
+        content.sort(key=lambda row:(row['bounds'][1],row['bounds'][0]))
+        titles=[row for row in content
+                if re.match(r'[^\W\d_]',row.get('text',''),re.UNICODE)
+                and row['bounds'][0]<width*.5]
+        titles=self._plain_surface_titles(observation,titles)
+        first=titles[0] if titles else None
+        next_title=None
+        if first:
+            fx,fy,_,fb=first['bounds']; font=fb-fy
+            next_title=next((row for row in titles[1:]
+                if abs(row['bounds'][0]-fx)<width*.10
+                and .7*font<=row['bounds'][3]-row['bounds'][1]<=1.25*font
+                and row['bounds'][1]-fb>font*2.5),None)
+        limit=next_title['bounds'][1] if next_title else round(height*.94)
+        previous_rows=[row for row in content if row['bounds'][1]<limit]
+        trailing=max((row['bounds'][3] for row in previous_rows),default=start)
+        boundary=self._ocr_item_separator(observation,start,trailing,limit)
+        source='ocr_layout_and_separator'
+        # Metadata can resemble another title, and OCR can read words in the
+        # following image. Verify a card gap independently of those words.
+        if first is not None and boundary is None:
+            card_boundary=self._visual_card_gap(observation,first['bounds'][3],
+                                                round(height*.94))
+            if card_boundary is not None:
+                boundary=card_boundary
+                source='ocr_title_and_visual_card_gap'
+        confirmed=first is not None and boundary is not None
+        if boundary is None:
+            # Keep a bounded diagnostic crop; guessed extents cannot authorize
+            # first-item label verdicts.
+            boundary=min(limit,start+round(height*.32))
+        observation['ocr_item_scope']={
+            'target':target,'bounds':[0,start,width,boundary],
+            'boundary_confirmed':confirmed,
+            'source':source if confirmed else 'ocr_layout_estimate',
+        }
+        if boundary-start<30:
+            return None
+        return [0,start,width,boundary]
+
+    def _visual_card_gap(self, observation, start, limit):
+        """Confirm a background gap followed by a broad rendered surface.
+
+        Inner metadata whitespace retains the card's edge/shadow. A gap must
+        match both gutters, including those edges, then lead to a substantial
+        next surface. This is a bounded card fallback, not a color classifier.
+        """
+        try:
+            from PIL import Image
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            _,height=image.size
+            image=image.resize((100,height))
+            required=max(6,round(height*.004))
+            run=0; gap=None
+            for y in range(start,min(height,limit)):
+                background=tuple((a+b)/2 for a,b in zip(
+                    image.getpixel((1,y)),image.getpixel((98,y))))
+                distances=[max(abs(c-b) for c,b in zip(
+                    image.getpixel((x,y)),background)) for x in range(3,97)]
+                uniform=(distances[0]<=1 and distances[-1]<=1
+                         and sum(d<=5 for d in distances)>=92)
+                if uniform:
+                    if not run: gap=y
+                    run+=1
+                    continue
+                if run>=required:
+                    # A small label or badge after whitespace is not a new
+                    # card. Require several rows of broad non-background UI.
+                    broad=0
+                    for next_y in range(y,min(limit,y+round(height*.05))):
+                        bg=tuple((a+b)/2 for a,b in zip(
+                            image.getpixel((1,next_y)),image.getpixel((98,next_y))))
+                        occupied=sum(max(abs(c-b) for c,b in zip(
+                            image.getpixel((x,next_y)),bg))>15 for x in range(4,96))
+                        broad=broad+1 if occupied>=60 else 0
+                        if broad>=required:
+                            return gap
+                run=0
+        except (ImportError,OSError,ValueError):
+            return None
+        return None
+
+    def _plain_surface_titles(self, observation, candidates):
+        """Exclude artwork text from repeated item-title candidates.
+
+        OCR reads words printed inside photographs too. A narrow strip above
+        each candidate distinguishes plain metadata surfaces from textured
+        artwork, without depending on the words or the surface color.
+        """
+        try:
+            from PIL import Image, ImageStat
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            width,height=image.size
+            titles=[]
+            for row in candidates:
+                x1,y1,x2,y2=row['bounds']
+                margin=max(2,round((y2-y1)*.2))
+                strip=image.crop((max(0,x1),max(0,y1-margin),
+                                  min(width,x2),max(1,min(height,y1-1))))
+                if strip.width and strip.height and max(ImageStat.Stat(strip).stddev)<=10:
+                    titles.append(row)
+            return titles
+        except (ImportError,OSError,ValueError):
+            # Without pixels, the existing uncertain-boundary guard applies.
+            return candidates
+
+    def _ocr_item_separator(self, observation, start, trailing, limit):
+        """Locate a background gap after OCR content, independent of colors.
+
+        Compare the row interior with its own screen gutters. Internal blank
+        lines before metadata are excluded by starting after trailing OCR text.
+        Pillow is optional; an unavailable separator is uncertainty.
+        """
+        try:
+            from PIL import Image
+            image=Image.open(io.BytesIO(observation.get('png',b''))).convert('RGB')
+            w,h=image.size
+            # Sampling caps work at ~100 pixels per row; no model call needed.
+            image=image.resize((100,h))
+            run=0; run_start=None
+            for y in range(max(start,trailing+2),min(h,limit)):
+                left=image.getpixel((1,y)); right=image.getpixel((98,y))
+                background=tuple((a+b)/2 for a,b in zip(left,right))
+                uniform=sum(max(abs(c-b) for c,b in zip(
+                    image.getpixel((x,y)),background))<=5
+                    for x in range(4,96))>=90
+                if uniform:
+                    if not run: run_start=y
+                    run+=1
+                    if run>=max(6,round(h*.004)):
+                        return run_start
+                else:
+                    run=0
+        except (ImportError,OSError,ValueError):
+            return None
+        return None
+
     def _extract_keywords(self, target: str) -> Set[str]:
         """
         Extract semantic keywords from target string.
@@ -296,7 +591,8 @@ class GenericAdapter(DomainAdapter):
         for node in observation.get('nodes', []):
             # Check scrollable flag OR resource ID/class name indicating list containers
             resource_id = node.get('resource_id', '').lower()
-            node_class = node.get('class', '').lower()
+            node_class = (node.get('class_name') or
+                          node.get('class','')).lower()
 
             is_scrollable = node.get('scrollable', False)
             is_list_container = (
@@ -435,16 +731,24 @@ class GenericAdapter(DomainAdapter):
                     if width > 50 and height > 50 and ny2 > cy1:
                         candidates.append((nx1, ny1, nx2, ny2))
 
-        # If direct children search didn't work, fall back to bounds-based search
+        # If direct children search didn't work, fall back to bounds-based search.
+        # Exclude the container itself and other near-full-container wrappers;
+        # otherwise the assertion crop becomes almost the entire screen.
         if not candidates:
             for node in nodes:
                 nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
                 width = nx2 - nx1
                 height = ny2 - ny1
+                container_width=cx2-cx1
+                container_height=cy2-cy1
+                same_as_container=(nx1,ny1,nx2,ny2)==(
+                    cx1,cy1,cx2,cy2)
 
                 # Item must be substantial and within container
-                if (width > 50 and height > 50 and
-                    nx2 > cx1 and nx1 < cx2 and
+                if (not same_as_container and
+                    width >= container_width * .55 and
+                    50 < height < container_height * .75 and
+                    nx1 >= cx1 and nx2 <= cx2 and
                     ny2 > cy1 and ny1 < cy2):
                     candidates.append((nx1, ny1, nx2, ny2))
 
@@ -453,6 +757,30 @@ class GenericAdapter(DomainAdapter):
 
         # Return topmost item (first visible)
         return min(candidates, key=lambda item: (max(item[1], cy1), item[0]))
+
+    def _expand_label_bounds(
+        self,
+        label_bounds: List[int],
+        item_bounds: Tuple[int,int,int,int],
+        screenshot_dims: Tuple[int,int]
+    ) -> List[int]:
+        """Add enough item context for reliable OCR/model label inspection."""
+        x1,y1,x2,y2=label_bounds
+        ix1,iy1,ix2,iy2=item_bounds
+        screen_width,screen_height=screenshot_dims
+        label_width=max(1,x2-x1)
+        label_height=max(1,y2-y1)
+        target_width=max(220,label_width*2)
+        target_height=max(140,label_height*4)
+        center_x=(x1+x2)//2
+        center_y=(y1+y2)//2
+        left=max(ix1,center_x-target_width//2)
+        top=max(iy1,center_y-target_height//2)
+        right=min(ix2,screen_width,left+target_width)
+        bottom=min(iy2,screen_height,top+target_height)
+        left=max(ix1,right-target_width)
+        top=max(iy1,bottom-target_height)
+        return [left,top,right,bottom]
 
     def _find_label_in_region(
         self,
