@@ -8,14 +8,14 @@ Preconditions:
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
-3. Verify that the forth item of Vendors recylerview contains Swimlane horizontal recyclerview .
-4. Scroll the Swimlane horizontal recyclerview to third item.
-5. Tap on Third item of Swimlane horizontal recyclerview.
-6. Verify that Menu screen open and contains same title contained in third item of Swimlane horizontal recyclerview.
+3. Verify that the fourth item of Vendors RecyclerView contains horizontal RecyclerView (resource-id hint: horizontal_scroll) .
+4. Scroll left within the horizontal RecyclerView (resource-id hint: horizontal_scroll) to reveal its third item.
+5. Tap on Third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
+6. Verify that Menu screen open and contains same title contained in third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
 
 
 Expected result:
-- The forth item of vendors recyclerview is visible and contains Swimlane horizontal recyclerview.
+- The fourth item of vendors recyclerview is visible and contains horizontal RecyclerView (resource-id hint: horizontal_scroll).
 - The horizontal recyclerview scrolled left to third item.
-- The third item of Swimlane horizontal recyclerview tapped.
-- Menu screen is open and contains title equal to title of third item of Swimlane horizontal recyclerview.
+- The third item of horizontal RecyclerView (resource-id hint: horizontal_scroll) tapped.
+- Menu screen is open and contains title equal to title of third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
