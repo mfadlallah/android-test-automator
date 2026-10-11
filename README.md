@@ -746,3 +746,9 @@ complete stdout/stderr (including stderr on exit code zero and partial output
 on timeout). The file also includes bounded activity/window snapshots at the
 start of the observation. These diagnostics identify dump failures without
 changing assertion outcomes or hiding the existing screenshot/OCR fallback.
+
+### Bounded local-model evidence
+
+Planning runs before execution. Runtime model calls remain available for ambiguous recovery and visual assertions; ordinary actions are executed by Python with grounded evidence. Recovery requests send compact node fields and the last three action summaries rather than full execution records. Node IDs, parents, labels, resource IDs, bounds, explicit state booleans and screenshots are retained; complete observations remain in artifacts.
+
+If Ollama reports a context-size HTTP 400, the client retries once with compact JSON evidence. It preserves the plan, assertion polarity/value, system instructions, output schema and images. Other HTTP errors are not retried. If the compact request still exceeds context, the run blocks rather than discarding visual evidence or weakening assertions. This does not guarantee a context fit for arbitrarily large screens.

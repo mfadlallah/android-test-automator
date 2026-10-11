@@ -15,6 +15,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
+from .model_evidence import compact_chat_request, context_overflow
 from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
 
 # Cache for toggle button positions learned from hierarchy observations
@@ -622,23 +623,24 @@ def local_request(path, payload=None, timeout=30):
         def redirect_request(self, *args, **kwargs):
             raise Blocked('Ollama redirect refused: local inference only')
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-    req=urllib.request.Request(LOCAL_URL+path,
-        data=json.dumps(payload).encode() if payload is not None else None,
-        headers={'Content-Type':'application/json'})
-    try:
-        with opener.open(req,timeout=timeout) as response: return json.load(response)
-    except urllib.error.HTTPError as e:
+    for attempt in range(2):
+        req=urllib.request.Request(LOCAL_URL+path,
+            data=json.dumps(payload).encode() if payload is not None else None,
+            headers={'Content-Type':'application/json'})
         try:
-            detail=e.read(1200).decode(errors='replace').strip()
-            parsed=json.loads(detail)
-            if isinstance(parsed,dict) and parsed.get('error'):
-                detail=str(parsed['error'])
-        except (ValueError,TypeError):
-            pass
-        detail=' '.join(detail.split())[:600] if detail else 'No error body returned.'
-        raise Blocked(f'Ollama HTTP {e.code}: {detail}') from None
-    except urllib.error.URLError:
-        raise Blocked('Cannot connect to local Ollama. Start Ollama or run ollama serve.') from None
+            with opener.open(req,timeout=timeout) as response: return json.load(response)
+        except urllib.error.HTTPError as e:
+            detail=e.read(8192).decode(errors='replace').strip()
+            if attempt == 0 and path == '/api/chat' and context_overflow(e.code, detail):
+                compact=compact_chat_request(payload)
+                if compact is not None:
+                    print('Ollama context overflow: retrying once with compact evidence.')
+                    payload=compact
+                    continue
+            detail=' '.join(detail.split())[:1200] if detail else 'No error body returned.'
+            raise Blocked(f'Ollama HTTP {e.code}: {detail}') from None
+        except urllib.error.URLError:
+            raise Blocked('Cannot connect to local Ollama. Start Ollama or run ollama serve.') from None
 
 def check_model(model, vision=True):
     if ':' not in model or model.endswith('-cloud') or '/' in model:
