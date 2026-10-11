@@ -3731,6 +3731,7 @@ def run_sequential_plan(
     history=[]; previous=None; last_action_obs=None; step_index=0
     modal_identities={}
     change_baseline=ModalBaseline()
+    displayed_step=None
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
 
@@ -3772,6 +3773,14 @@ def run_sequential_plan(
                           history[-1]['decision'].get('evidence',''))
         step=steps[step_index]
         capability=step['capability']
+        if displayed_step!=step_index:
+            description=capability.replace('_',' ')
+            if step.get('target'):
+                description+=': '+str(step['target'])
+            if step.get('value'):
+                description+=' → '+str(step['value'])
+            print(f"[{step_index+1}/{len(steps)}] {description}",flush=True)
+            displayed_step=step_index
         assessment={'kind':'plan_step','step':step}
         advance=False
         global_in_app=(
@@ -3949,9 +3958,16 @@ def run_sequential_plan(
                 'step_completed':bool(advance)}
         (folder/f'{observation_index:02d}-decision.json').write_text(
             json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
-        print(f"[{observation_index+1}/{max_steps}] {decision['action']}: "
-              f"{decision['reason']}",flush=True)
         action=decision['action']
+        if action in {'failed','blocked'}:
+            detail=action.upper()+': '+decision['reason']
+        elif advance:
+            detail='✓ '+decision['reason']
+        elif action=='wait':
+            detail='↳ Wait: '+decision['reason']
+        else:
+            detail='↳ Recovery: '+decision['reason']
+        print('  '+detail,flush=True)
         history.append(record)
         if action in {'failed','blocked'}:
             return finish(action.upper(),decision['reason'],decision['evidence'])
