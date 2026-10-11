@@ -1,0 +1,21 @@
+TestRail ID: T33618525
+Title: Verify that clicking on any vendor in swimlanes will direct user to vendor menu screen
+
+Preconditions:
+- The app is installed and the user is already logged in.
+- Home is displayed after launch.
+
+Steps:
+1. Tap the Restaurants label on Home (or المطاعم in Arabic).
+2. Recover safely from any optional foreground sheet.
+3. Verify that the forth item of Vendors recylerview contains Swimlane horizontal recyclerview .
+4. Scroll the Swimlane horizontal recyclerview to third item.
+5. Tap on Third item of Swimlane horizontal recyclerview.
+6. Verify that Menu screen open and contains same title contained in third item of Swimlane horizontal recyclerview.
+
+
+Expected result:
+- The forth item of vendors recyclerview is visible and contains Swimlane horizontal recyclerview.
+- The horizontal recyclerview scrolled left to third item.
+- The third item of Swimlane horizontal recyclerview tapped.
+- Menu screen is open and contains title equal to title of third item of Swimlane horizontal recyclerview.
