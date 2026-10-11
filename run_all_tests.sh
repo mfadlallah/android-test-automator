@@ -56,8 +56,8 @@ for case in cases/*.txt; do
 
   # Pass run folder to main.py via environment variable
   # 30-minute timeout per test (some backend operations like Apply filter are slow)
-  if timeout 1800 env TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
-       python3 -m src.main --case "$case"; then
+  if timeout 1800 env MOBILE_AGENT_DEBUG=0 TEST_RUN_FOLDER="$RUN_FOLDER" TEST_CASE_NAME="$case_name" \
+       python3 -m src.main --case "$case" --hierarchy-backend uiautomator2; then
     ((passed++))
     CASE_END=$(date +%s)
     CASE_DURATION=$((CASE_END - CASE_START))
