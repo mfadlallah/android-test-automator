@@ -18,6 +18,7 @@ from pathlib import Path
 from .change_evidence import ModalBaseline, collection_change, collection_visible
 from .state_assertions import modal_assertion, selected_assertion
 from .model_evidence import compact_chat_request, context_overflow
+from .progress import PlanProgress
 from .hierarchy_backend import capture as capture_hierarchy, resolve_backend
 
 # Cache for toggle button positions learned from hierarchy observations
@@ -3734,7 +3735,7 @@ def run_sequential_plan(
     history=[]; previous=None; last_action_obs=None; step_index=0
     modal_identities={}
     change_baseline=ModalBaseline()
-    displayed_step=None
+    progress=PlanProgress(plan,lambda message: print(message,flush=True))
     recovery=Recovery(max_actions=3); waits={}
     steps=plan['steps']
 
@@ -3776,14 +3777,7 @@ def run_sequential_plan(
                           history[-1]['decision'].get('evidence',''))
         step=steps[step_index]
         capability=step['capability']
-        if displayed_step!=step_index:
-            description=capability.replace('_',' ')
-            if step.get('target'):
-                description+=': '+str(step['target'])
-            if step.get('value'):
-                description+=' → '+str(step['value'])
-            print(f"[{step_index+1}/{len(steps)}] {description}",flush=True)
-            displayed_step=step_index
+        progress.show(step_index)
         assessment={'kind':'plan_step','step':step}
         advance=False
         global_in_app=(
@@ -3962,15 +3956,7 @@ def run_sequential_plan(
         (folder/f'{observation_index:02d}-decision.json').write_text(
             json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
         action=decision['action']
-        if action in {'failed','blocked'}:
-            detail=action.upper()+': '+decision['reason']
-        elif advance:
-            detail='✓ '+decision['reason']
-        elif action=='wait':
-            detail='↳ Wait: '+decision['reason']
-        else:
-            detail='↳ Recovery: '+decision['reason']
-        print('  '+detail,flush=True)
+        progress.detail(decision,completed=advance,recovery=not advance)
         history.append(record)
         if action in {'failed','blocked'}:
             return finish(action.upper(),decision['reason'],decision['evidence'])
@@ -4005,6 +3991,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
     global _toggle_position_cache
     _toggle_position_cache = None  # Reset cache at start of test attempt
     history=[]; previous=None; unchanged=0; navigation_taps=0; scrolls=0
+    progress=PlanProgress(plan,lambda message: print(message,flush=True))
     recovery=Recovery(max_actions=3)
     try:
         tap_target=navigation_target(plan)
@@ -4109,7 +4096,7 @@ def run_loop(device,folder,case,plan,planner,recovery_assessor,max_steps=25):
             json.dumps(assessment,ensure_ascii=False,indent=2),encoding='utf-8')
         record={'observation':index,'decision':decision,'usage':usage}
         (folder/f'{index:02d}-decision.json').write_text(json.dumps(record,ensure_ascii=False,indent=2))
-        print(f"[{index+1}/{max_steps}] {decision['action']}: {decision['reason']}",flush=True)
+        progress.legacy(decision,usage)
         action=decision['action']
         if action in ('passed','failed','blocked'):
             layout_tapped=any(
