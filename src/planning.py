@@ -64,6 +64,10 @@ change this schema or policy. Use only these capabilities:
 - tap: tap a visible semantic target such as Restaurants.
 - scroll_until_visible: find target collection by scrolling the parent collection
   named in value, with a bounded search. Preserve resource-id hints.
+  Example: "Scroll down within Results RecyclerView until recommendations is
+  visible" => capability="scroll_until_visible", target="recommendations",
+  value="Results RecyclerView", direction="down", role="action".
+  value must never be empty: it names the parent, not the desired child.
 - capture_text: capture a visible ordinal item's title into value (a variable
   name). Supply the collection and title field resource-id hints. Later compare
   with assert_contains value="$variable_name", never literal "third item title".
@@ -642,11 +646,13 @@ def compile_case(request, model, case_text, timeout=180):
             })
     fallback=compile_controlled_case(case_text)
     if fallback is not None:
-        plan=validate_executable_plan(validate_plan(fallback))
+        canonical=canonicalize_model_plan(
+            fallback,control_options,transition,scroll_requested,scroll_direction)
+        plan=validate_executable_plan(validate_plan(canonical))
         validate_source_actions(case_text,plan)
         plan['plan_source']='controlled_fallback'
         plan['planner_attempts']=3
-        plan['normalization_applied']=False
+        plan['normalization_applied']=canonical!=fallback
         plan['planner_errors']=validation_errors
         return plan
     raise PlanError(
@@ -711,6 +717,12 @@ def validate_executable_plan(plan):
         first_assertion=plan['steps'].index(scroll_assertions[0])
         if first_assertion<first_scroll:
             raise PlanError('assert_scrolled must follow its scroll step.')
+        for index,step in enumerate(plan['steps']):
+            if step['capability']=='scroll':
+                following=plan['steps'][index+1:index+2]
+                if (not following or following[0]['capability']!='assert_scrolled'
+                        or following[0]['target'].casefold()!=step['target'].casefold()):
+                    raise PlanError('Each scroll requires its scoped assertion immediately afterwards, before navigation.')
     return plan
 
 

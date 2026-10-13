@@ -5,12 +5,28 @@ from pathlib import Path
 from src.collections import resolve_collection, capture_item_text, CollectionError
 from src.runtime_values import validate_bindings, resolve_value, captured_destination_result
 from src.planning import (compile_controlled_case, canonicalize_model_plan,
-                          validate_plan, validate_executable_plan, validate_source_actions, PlanError)
+                          validate_plan, validate_executable_plan, validate_source_actions, compile_case, PlanError)
 from tests.test_collections import scene, node
 from src.main import run_sequential_plan, plan_completion_error
 
 
 class RuntimeValuesTests(unittest.TestCase):
+    def test_actual_fallback_path_normalizes_scroll_proof(self):
+        text=Path('cases/33618525-open-swimlanes-in-list.txt').read_text()
+        def invalid_planner(*args):
+            return {'done':True,'done_reason':'stop','message':{'content':'{}'}}
+        plan=compile_case(invalid_planner,'local',text)
+        self.assertEqual(plan['plan_source'],'controlled_fallback')
+        self.assertTrue(plan['normalization_applied'])
+        caps=[s['capability'] for s in plan['steps']]
+        index=caps.index('scroll')
+        self.assertEqual(caps[index+1:index+3],['assert_scrolled','capture_text'])
+        self.assertEqual(plan['steps'][2]['value'],'Vendors RecyclerView')
+
+    def test_late_scroll_assertion_is_rejected(self):
+        text=Path('cases/33618525-open-swimlanes-in-list.txt').read_text()
+        raw=validate_plan(compile_controlled_case(text))
+        with self.assertRaises(PlanError): validate_executable_plan(raw)
     def test_bounded_search_executes_only_parent_swipes(self):
         from tests.test_collections import step
         search=step(1,'scroll_until_visible','horizontal_scroll','down')
