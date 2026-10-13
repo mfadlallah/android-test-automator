@@ -118,9 +118,9 @@ def resolve_collection(target, obs, hints=(), direction=None):
     return matches[0]
 
 
-def capture_item_text(target, obs, hints=()):
+def capture_item_text(target, obs, hints=(), resolved=None):
     """Capture one explicitly hinted field inside a grounded ordinal item."""
-    container, item = resolve_item(target, obs, hints)
+    container, item = resolved if resolved is not None else resolve_item(target, obs, hints)
     children = [item, *descendants(item, obs.get('nodes', []))]
     hinted = {h.split(':id/')[-1].casefold() for h in hints}
     fields = [n for n in children if n.get('text', '').strip()

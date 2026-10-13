@@ -72,6 +72,10 @@ change this schema or policy. Use only these capabilities:
   name). Supply the collection and title field resource-id hints. Later compare
   with assert_contains value="$variable_name", never literal "third item title".
 - Preserve every explicit Tap as a tap step, not an assert_visible step.
+- seek_item: track an ordinal from the observed collection start across windows.
+  target is collection, value is ordinal string (e.g. "3"), direction is forward
+  left/right/up/down, hints include collection ID and unique item title field ID.
+  Later capture_text and tap use target="tracked item of <collection>".
 - recover_optional: allow safe dismissal of optional foreground interruptions.
 - set_control: select an option in a visible segmented/toggle control.
 - assert_changed: verify a target UI region changed after the preceding action.
@@ -282,11 +286,11 @@ def canonicalize_model_plan(
                     item['position']=side_for_value[value]
             else:
                 item['position']='none'
-            if item.get('capability') not in {'scroll','scroll_until_visible'}:
+            if item.get('capability') not in {'scroll','scroll_until_visible','seek_item'}:
                 item['direction']='none'
             if item.get('capability') not in {
                     'set_control','assert_contains','assert_not_contains',
-                    'capture_text','scroll_until_visible'}:
+                    'capture_text','scroll_until_visible','seek_item'}:
                 item['value']=''
             item['optional']=item.get('capability')=='recover_optional'
         repaired['steps'].append(item)
@@ -479,6 +483,10 @@ def compile_controlled_case(case_text):
         if lowered.startswith('recover '):
             add('recover_optional','recovery',optional=True,success=line)
             continue
+        seek=re.fullmatch(r'(?i)seek item (\d+) in (.+?) by scrolling (left|right|up|down)',line)
+        if seek:
+            add('seek_item','action',seek[2],seek[1],seek[3].lower(),success=line)
+            continue
         if re.match(r'(?i)^tap\b',line):
             quoted=re.search(r'["“](.+?)["”]',line)
             if quoted:
@@ -564,7 +572,7 @@ def compile_controlled_case(case_text):
     scroll_requested=bool(re.search(
         r'(?i)\b(?:scroll\s+(?:up|down)|list\s+scrolls)\b',case_text))
     capabilities={step['capability'] for step in steps}
-    if scroll_requested and 'scroll' not in capabilities:
+    if scroll_requested and not capabilities & {'scroll','seek_item','scroll_until_visible'}:
         add('scroll','action','vertical restaurant list',
             direction='down',success='Scroll the requested list.')
         capabilities.add('scroll')
@@ -705,6 +713,20 @@ def navigation_target(plan):
 def validate_executable_plan(plan):
     """Validate relationships required by the current safe executor."""
     navigation_target(plan)
+    tracked=set()
+    for step in plan['steps']:
+        if step['capability']=='seek_item':
+            if not re.fullmatch(r'[1-9]\d*',step['value']) or int(step['value'])>100:
+                raise PlanError('seek_item value must be an ordinal from 1 to 100.')
+            if step['direction'] not in {'left','right','up','down'}:
+                raise PlanError('seek_item requires a forward direction.')
+            tracked.add(step['target'].casefold())
+        if step['target'].casefold().startswith('tracked item of '):
+            if step['capability'] not in {'tap','capture_text'}:
+                raise PlanError('Tracked item targets support tap or capture_text only.')
+            key=step['target'][len('tracked item of '):].casefold()
+            if key not in tracked:
+                raise PlanError('Tracked item target requires a preceding seek_item for its collection.')
     try:
         validate_bindings(plan['steps'])
     except ValueError as exc:
@@ -763,9 +785,15 @@ def validate_source_actions(case_text, plan):
         number=ordinal(line)
         if number and not any(ordinal(s['target'])==number for s in taps):
             raise PlanError('Plan lost ordinal tap scope from source: '+line)
+        tracked=re.search(r'(?i)tracked item of (.+?)(?:\s*\(resource-id|\.?$)',line)
+        if tracked and not any(s['target'].casefold()=='tracked item of '+tracked[1].strip().casefold() for s in taps):
+            raise PlanError('Plan replaced the tracked item tap with another target.')
     for line in lines:
         if re.match(r'(?i)capture\b',line) and not any(s['capability']=='capture_text' for s in plan['steps']):
             raise PlanError('Plan omitted the runtime text capture.')
+        seek=re.match(r'(?i)seek item (\d+) in (.+?) by scrolling (left|right|up|down)',line)
+        if seek and not any(s['capability']=='seek_item' and s['value']==seek[1] and s['direction']==seek[3].lower() for s in plan['steps']):
+            raise PlanError('Plan omitted or changed the identity-tracked ordinal search.')
     for step in plan['steps']:
         if step['capability'] in {'assert_contains','assert_not_contains'} and re.search(r'(?i)\b(?:first|second|third|fourth) item title\b',step['value']):
             raise PlanError('Item title comparison requires capture_text and a $variable reference, not a literal placeholder.')

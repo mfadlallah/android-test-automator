@@ -12,7 +12,7 @@ from src.main import run_sequential_plan, plan_completion_error
 
 class RuntimeValuesTests(unittest.TestCase):
     def test_actual_fallback_path_normalizes_scroll_proof(self):
-        text=Path('cases/33618525-open-swimlanes-in-list.txt').read_text()
+        text='Title: Test\nSteps:\n1. Tap Catalog.\n2. Scroll left within recommendations.\n3. Tap Details.\nExpected result: content moved'
         def invalid_planner(*args):
             return {'done':True,'done_reason':'stop','message':{'content':'{}'}}
         plan=compile_case(invalid_planner,'local',text)
@@ -20,11 +20,10 @@ class RuntimeValuesTests(unittest.TestCase):
         self.assertTrue(plan['normalization_applied'])
         caps=[s['capability'] for s in plan['steps']]
         index=caps.index('scroll')
-        self.assertEqual(caps[index+1:index+3],['assert_scrolled','capture_text'])
-        self.assertEqual(plan['steps'][2]['value'],'Vendors RecyclerView')
+        self.assertEqual(caps[index+1:index+3],['assert_scrolled','tap'])
 
     def test_late_scroll_assertion_is_rejected(self):
-        text=Path('cases/33618525-open-swimlanes-in-list.txt').read_text()
+        text='Title: Test\nSteps:\n1. Tap Catalog.\n2. Scroll left within recommendations.\n3. Tap Details.\nExpected result: content moved'
         raw=validate_plan(compile_controlled_case(text))
         with self.assertRaises(PlanError): validate_executable_plan(raw)
     def test_bounded_search_executes_only_parent_swipes(self):
@@ -86,9 +85,9 @@ class RuntimeValuesTests(unittest.TestCase):
         text=Path('cases/33618525-open-swimlanes-in-list.txt').read_text()
         plan=validate_executable_plan(validate_plan(canonicalize_model_plan(compile_controlled_case(text))))
         validate_source_actions(text,plan)
-        self.assertEqual([s['capability'] for s in plan['steps']],['tap','recover_optional','scroll_until_visible','assert_visible','scroll','assert_scrolled','capture_text','tap','assert_visible','assert_contains'])
-        self.assertEqual(plan['steps'][5]['hints'],['horizontal_scroll'])
-        plan['steps'][7]['capability']='assert_visible'
+        self.assertEqual([s['capability'] for s in plan['steps']],['tap','recover_optional','scroll_until_visible','assert_visible','seek_item','capture_text','tap','assert_visible','assert_contains'])
+        self.assertEqual(plan['steps'][4]['hints'],['horizontal_scroll','vendor_name'])
+        plan['steps'][6]['capability']='assert_visible'
         with self.assertRaises(PlanError): validate_source_actions(text,plan)
 
     def test_old_placeholder_plan_is_rejected(self):

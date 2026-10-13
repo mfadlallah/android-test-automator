@@ -3,6 +3,7 @@ from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
                           swipe_points, scroll_changed, descendants, capture_item_text)
 from .runtime_values import resolve_value, captured_destination_result
+from .item_tracking import ItemTracker, resolve_tracked
 import argparse
 import base64
 import hashlib
@@ -582,6 +583,16 @@ class Device:
             if not node['scrollable']: raise Blocked('Target is not a usable scroll container')
             try:
                 points=swipe_points(node['bounds'],decision['direction'])
+                fraction=decision.get('scroll_fraction')
+                if fraction is not None:
+                    if fraction!=.25:
+                        raise CollectionError('Unsupported tracked-scroll fraction')
+                    horizontal=decision['direction'] in {'left','right'}
+                    lo,hi=(x1,x2) if horizontal else (y1,y2)
+                    a=round(lo+(hi-lo)*.65); b=round(lo+(hi-lo)*.40)
+                    if decision['direction'] in {'right','up'}:
+                        a,b=b,a
+                    points=(a,(y1+y2)//2,b,(y1+y2)//2) if horizontal else ((x1+x2)//2,a,(x1+x2)//2,b)
             except CollectionError as exc:
                 raise Blocked(str(exc)) from exc
             self.adb('shell','input','swipe',*(str(p) for p in points),'600')
@@ -3765,6 +3776,7 @@ def run_sequential_plan(
     progress=PlanProgress(plan,lambda message: print(message,flush=True))
     recovery=Recovery(max_actions=3); waits={}
     captured={}; search_attempts={}
+    trackers={}; tracked_items={}
     steps=plan['steps']
 
     def finish(status,reason,evidence=''):
@@ -3780,6 +3792,8 @@ def run_sequential_plan(
         detail=reason
         if evidence:
             detail+=' | Evidence: '+evidence
+        if status in {'BLOCKED','FAILED'}:
+            print('  ↳ '+status+': '+detail,flush=True)
         if status=='PASSED':
             detail+=(' | Completed '+str(summary['steps_passed'])+'/'+
                      str(summary['steps_total'])+' steps and '+
@@ -3890,9 +3904,30 @@ def run_sequential_plan(
                         }
                         usage={'source':'sequential_executor','step_id':step['id']}
                         advance=True
+        elif capability=='seek_item':
+            try:
+                tracker=trackers.setdefault(step['id'],ItemTracker(step['target'],int(step['value']),step.get('hints',()),step['direction']))
+                decision=tracker.observe(obs)
+                if decision is None:
+                    tracked_items[step['target'].casefold()]=tracker.selected
+                    decision={'action':'step_pass','node':None,'direction':'none',
+                              'reason':'Tracked item '+step['value']+' is grounded by identity.',
+                              'evidence':json.dumps(tracker.selected,ensure_ascii=False)}
+                    advance=True
+            except (CollectionError,ValueError) as exc:
+                (folder/'item-tracking.json').write_text(json.dumps({k:{'trace':v.trace,'selected':v.selected} for k,v in trackers.items()},ensure_ascii=False,indent=2),encoding='utf-8')
+                return finish('BLOCKED',str(exc))
+            (folder/'item-tracking.json').write_text(json.dumps({k:{'trace':v.trace,'selected':v.selected} for k,v in trackers.items()},ensure_ascii=False,indent=2),encoding='utf-8')
+            usage={'source':'item_tracking','step_id':step['id']}
         elif capability=='capture_text':
             try:
-                text,scope=capture_item_text(step['target'],obs,step.get('hints',()))
+                resolved=None
+                if step['target'].casefold().startswith('tracked item of '):
+                    key=step['target'][len('tracked item of '):].casefold()
+                    if key not in tracked_items:
+                        raise CollectionError('No prior tracked item selection for '+key)
+                    resolved=resolve_tracked(tracked_items[key],obs)
+                text,scope=capture_item_text(step['target'],obs,step.get('hints',()),resolved)
             except CollectionError as exc:
                 return finish('BLOCKED',str(exc))
             captured[step['value']]={'text':text,'scope':scope,'observation':observation_index}
@@ -3924,8 +3959,23 @@ def run_sequential_plan(
                           'evidence':'Parent collection '+str(parent.get('resource_id'))}
             usage={'source':'collection_search','step_id':step['id']}
         elif capability=='tap':
-            decision,usage=semantic_tap_decision(
-                obs,step['target'],step.get('hints',()))
+            if step['target'].casefold().startswith('tracked item of '):
+                key=step['target'][len('tracked item of '):].casefold()
+                try:
+                    if key not in tracked_items:
+                        raise CollectionError('No tracked item selection for '+key)
+                    container,item=resolve_tracked(tracked_items[key],obs)
+                    if not item.get('clickable') or not item.get('enabled',True):
+                        raise CollectionError('Tracked item is not an enabled clickable target.')
+                except CollectionError as exc:
+                    return finish('BLOCKED',str(exc))
+                decision={'action':'tap','node':item['node'],'direction':'none',
+                          'reason':'Tap the identity-tracked item.',
+                          'evidence':json.dumps(tracked_items[key],ensure_ascii=False)}
+                usage={'source':'tracked_item_tap'}
+            else:
+                decision,usage=semantic_tap_decision(
+                    obs,step['target'],step.get('hints',()))
             if step_index==0:
                 usage['source']='navigation_gate'
             usage['step_id']=step['id']; advance=True
@@ -4057,7 +4107,7 @@ def run_sequential_plan(
         (folder/f'{observation_index:02d}-decision.json').write_text(
             json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
         action=decision['action']
-        progress.detail(decision,completed=advance,recovery=not advance)
+        progress.detail(decision,completed=advance,recovery=not advance and usage.get('source') not in {'item_tracking','collection_search'})
         history.append(record)
         if action in {'failed','blocked'}:
             return finish(action.upper(),decision['reason'],decision['evidence'])

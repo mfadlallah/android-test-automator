@@ -4,16 +4,16 @@ Title: Verify that clicking on a visible vendor in swimlanes opens its menu
 Preconditions:
 - The app is installed and the user is already logged in.
 - Home is displayed after launch.
-- Ordinals refer to the current visible window, not absolute backend indices.
+- Item 3 means the third identity-tracked item from the observed collection start, not the third simultaneously visible card.
 
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
 3. Scroll down within Vendors RecyclerView until horizontal_scroll is visible (resource-id hint: horizontal_scroll).
 4. Verify horizontal_scroll is visible (resource-id hint: horizontal_scroll).
-5. Scroll left within horizontal_scroll (resource-id hint: horizontal_scroll).
-6. Capture third visible item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
-7. Tap third visible item of horizontal_scroll (resource-id hint: horizontal_scroll).
+5. Seek item 3 in horizontal_scroll by scrolling left (resource-id hints: horizontal_scroll, vendor_name).
+6. Capture tracked item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
+7. Tap tracked item of horizontal_scroll (resource-id hint: horizontal_scroll).
 8. Verify vendor_name is visible (resource-id hint: vendor_name).
 9. Verify vendor_name contains $vendor_title (resource-id hint: vendor_name).
 
@@ -22,5 +22,5 @@ Expected result:
 - The destination vendor title matches the captured item title.
 
 Notes:
-- This checks the title's any-vendor journey. It does not claim an absolute fourth parent or third backend item.
-- The third position is in the current visible window. Fewer than three fully visible items will block rather than silently tap another item.
+- The tracker first seeks an observed start boundary, then follows overlapping item identities.
+- It does not claim the fourth parent position or a backend index. Duplicate titles, lost overlap, or an ungrounded boundary block rather than guess.

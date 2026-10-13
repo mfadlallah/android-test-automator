@@ -17,21 +17,31 @@ Collection IDs are matched exactly before semantic token matching. An explicit
 missing ID cannot resolve to another carousel or pass visibility on AI prose.
 The planner rejects omitted explicit taps and literal ordinal-title placeholders.
 
-Two reusable capabilities support the swimlane journey:
+Three reusable capabilities support the swimlane journey:
 - `scroll_until_visible`: scroll the parent collection named in `value`, in
   `direction`, until the target collection is grounded; at most five swipes.
 - `capture_text`: capture a text field inside a grounded visible ordinal item
   into a named variable. Provide collection and field resource-ID hints when
   the item contains several text fields. `captured-values.json` records its scope.
+- `seek_item`: value is a positive ordinal, target is the collection, direction
+  is forward, and hints identify the collection and its item identity field.
+  It seeks an observed start boundary (two consecutive non-moving observations
+  after reverse swipes), then merges overlapping identity windows with small
+  swipes. At most twelve total swipes. Later Capture/Tap use `tracked item of
+  <collection>` and recheck the same identity on the current hierarchy.
+  `item-tracking.json` records windows, bounds, phase and selection.
 
 Use `assert_contains` with `$variable_name` to compare the captured title exactly
 with one destination resource-ID field outside the source collection. Missing,
 ambiguous or uncaptured evidence blocks; a different title fails.
 
-The updated swimlane case exercises **any visible vendor**, using the third
-visible item after horizontal scrolling. It does not prove an absolute fourth
-parent or third backend item. The third-visible ordinal is preserved in both Capture and Tap and requires
-sufficient visible item evidence; absolute backend indices remain unsupported.
+The updated swimlane case targets the third item from the **observed collection
+start**, even when only two cards fit on screen. Duplicate identities, lost
+overlap, changed order, clipping or exhausted budgets block. The same helper
+supports horizontal and vertical lists. The boundary is inferred from observed
+non-movement, not an authoritative backend index: stalled gestures can mimic an
+edge. It does not prove an absolute fourth parent, and requires live-device
+validation on the target layouts.
 
 ## Current scope
 

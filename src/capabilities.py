@@ -15,6 +15,10 @@ class CapabilitySpec:
 REGISTRY = {
     spec.name:spec for spec in (
         CapabilitySpec(
+            'seek_item',frozenset({'action'}),requires_target=True,requires_value=True,
+            requires_direction=True,
+            description='Find an ordinal item from the observed start using bounded identity tracking; value is positive ordinal, hints include identity field ID.'),
+        CapabilitySpec(
             'scroll_until_visible',frozenset({'action'}),requires_target=True,
             requires_value=True,requires_direction=True,
             description='Bounded search for target collection by scrolling parent collection named in value.'),
