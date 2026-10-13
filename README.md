@@ -5,6 +5,28 @@ Python execution, ADB, UIAutomator2 hierarchy, and Apple Vision OCR.
 This is an advisory PoC, not a replacement for release-critical regression.
 See [RFC v0](RFC.md) for architecture, trade-offs, ownership, and rollout.
 
+## Nested collection search and captured titles
+
+Collection IDs are matched exactly before semantic token matching. An explicit
+missing ID cannot resolve to another carousel or pass visibility on AI prose.
+The planner rejects omitted explicit taps and literal ordinal-title placeholders.
+
+Two reusable capabilities support the swimlane journey:
+- `scroll_until_visible`: scroll the parent collection named in `value`, in
+  `direction`, until the target collection is grounded; at most five swipes.
+- `capture_text`: capture a text field inside a grounded visible ordinal item
+  into a named variable. Provide collection and field resource-ID hints when
+  the item contains several text fields. `captured-values.json` records its scope.
+
+Use `assert_contains` with `$variable_name` to compare the captured title exactly
+with one destination resource-ID field outside the source collection. Missing,
+ambiguous or uncaptured evidence blocks; a different title fails.
+
+The updated swimlane case exercises **any visible vendor**, using the third
+visible item after horizontal scrolling. It does not prove an absolute fourth
+parent or third backend item. The third-visible ordinal is preserved in both Capture and Tap and requires
+sufficient visible item evidence; absolute backend indices remain unsupported.
+
 ## Current scope
 
 | Case | Journey | Evidence status |

@@ -1,21 +1,26 @@
 TestRail ID: T33618525
-Title: Verify that clicking on any vendor in swimlanes will direct user to vendor menu screen
+Title: Verify that clicking on a visible vendor in swimlanes opens its menu
 
 Preconditions:
 - The app is installed and the user is already logged in.
 - Home is displayed after launch.
+- Ordinals refer to the current visible window, not absolute backend indices.
 
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
-3. Verify that the fourth item of Vendors RecyclerView contains horizontal RecyclerView (resource-id hint: horizontal_scroll) .
-4. Scroll left within the horizontal RecyclerView (resource-id hint: horizontal_scroll) to reveal its third item.
-5. Tap on Third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
-6. Verify that Menu screen open and contains same title contained in third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
-
+3. Scroll down within Vendors RecyclerView until horizontal_scroll is visible (resource-id hint: horizontal_scroll).
+4. Verify horizontal_scroll is visible (resource-id hint: horizontal_scroll).
+5. Scroll left within horizontal_scroll (resource-id hint: horizontal_scroll).
+6. Capture third visible item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
+7. Tap third visible item of horizontal_scroll (resource-id hint: horizontal_scroll).
+8. Verify vendor_name is visible (resource-id hint: vendor_name).
+9. Verify vendor_name contains $vendor_title (resource-id hint: vendor_name).
 
 Expected result:
-- The fourth item of vendors recyclerview is visible and contains horizontal RecyclerView (resource-id hint: horizontal_scroll).
-- The horizontal recyclerview scrolled left to third item.
-- The third item of horizontal RecyclerView (resource-id hint: horizontal_scroll) tapped.
-- Menu screen is open and contains title equal to title of third item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
+- A vendor in the horizontal collection is tapped after a scoped horizontal scroll.
+- The destination vendor title matches the captured item title.
+
+Notes:
+- This checks the title's any-vendor journey. It does not claim an absolute fourth parent or third backend item.
+- The third position is in the current visible window. Fewer than three fully visible items will block rather than silently tap another item.

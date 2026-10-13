@@ -1,7 +1,8 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
 from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
-                          swipe_points, scroll_changed, descendants)
+                          swipe_points, scroll_changed, descendants, capture_item_text)
+from .runtime_values import resolve_value, captured_destination_result
 import argparse
 import base64
 import hashlib
@@ -3665,6 +3666,8 @@ def plan_completion_error(plan,history):
     by_id={str(step.get('id')):step for step in plan.get('steps',[])}
     for step_id,item in results.items():
         step=by_id[step_id]
+        if step.get('value','').startswith('$'):
+            step={**step,'value':item['expected_value']}
         if step.get('capability') not in ASSERTION_STEP_CAPABILITIES:
             continue
         error=assertion_evidence_error(step,{
@@ -3761,6 +3764,7 @@ def run_sequential_plan(
     change_baseline=ModalBaseline()
     progress=PlanProgress(plan,lambda message: print(message,flush=True))
     recovery=Recovery(max_actions=3); waits={}
+    captured={}; search_attempts={}
     steps=plan['steps']
 
     def finish(status,reason,evidence=''):
@@ -3800,6 +3804,12 @@ def run_sequential_plan(
             return finish('PASSED','All structured plan steps passed.',
                           history[-1]['decision'].get('evidence',''))
         step=steps[step_index]
+        captured_reference=(step.get('value','')[1:] if step.get('value','').startswith('$') else None)
+        if step['capability'] in {'assert_contains','assert_not_contains'}:
+            try:
+                step={**step,'value':resolve_value(step['value'],captured)}
+            except ValueError as exc:
+                return finish('BLOCKED',str(exc))
         capability=step['capability']
         progress.show(step_index)
         assessment={'kind':'plan_step','step':step}
@@ -3880,6 +3890,39 @@ def run_sequential_plan(
                         }
                         usage={'source':'sequential_executor','step_id':step['id']}
                         advance=True
+        elif capability=='capture_text':
+            try:
+                text,scope=capture_item_text(step['target'],obs,step.get('hints',()))
+            except CollectionError as exc:
+                return finish('BLOCKED',str(exc))
+            captured[step['value']]={'text':text,'scope':scope,'observation':observation_index}
+            (folder/'captured-values.json').write_text(json.dumps(captured,ensure_ascii=False,indent=2),encoding='utf-8')
+            decision={'action':'step_pass','node':None,'direction':'none',
+                      'reason':'Captured '+step['value']+': '+text,
+                      'evidence':json.dumps(captured[step['value']],ensure_ascii=False)}
+            usage={'source':'capture_text','step_id':step['id']}; advance=True
+        elif capability=='scroll_until_visible':
+            try:
+                target=resolve_collection(step['target'],obs,step.get('hints',()))
+            except CollectionError:
+                target=None
+            if target is not None:
+                decision={'action':'step_pass','node':None,'direction':'none',
+                          'reason':step['target']+' collection is grounded.',
+                          'evidence':str(target.get('resource_id'))+'; bounds '+str(target['bounds'])}
+                advance=True
+            else:
+                if search_attempts.get(step['id'],0)>=5:
+                    return finish('BLOCKED','Collection search exhausted after five scoped swipes: '+step['target'])
+                try:
+                    parent=resolve_collection(step['value'],obs,(),step['direction'])
+                except CollectionError as exc:
+                    return finish('BLOCKED',str(exc))
+                search_attempts[step['id']]=search_attempts.get(step['id'],0)+1
+                decision={'action':'scroll','node':parent['node'],'direction':step['direction'],
+                          'reason':'Search swipe '+str(search_attempts[step['id']])+'/5 for '+step['target'],
+                          'evidence':'Parent collection '+str(parent.get('resource_id'))}
+            usage={'source':'collection_search','step_id':step['id']}
         elif capability=='tap':
             decision,usage=semantic_tap_decision(
                 obs,step['target'],step.get('hints',()))
@@ -3932,6 +3975,19 @@ def run_sequential_plan(
         elif capability in SEQUENTIAL_CAPABILITIES or capability=='assert_changed':
             grounded_state=(modal_assertion(step,obs,modal_identities)
                             or selected_assertion(step,obs))
+            if captured_reference:
+                grounded_state=captured_destination_result(step,obs,captured[captured_reference])
+            # An explicitly named collection cannot pass on model prose alone.
+            collection_target=(capability=='assert_visible' and
+                (re.search(r'(?i)recyclerview|vertical.*list',step['target'])
+                 or any(s['capability'] in {'scroll','scroll_until_visible'} and s['target']==step['target'] for s in steps)))
+            if collection_target and ordinal(step['target']) is None:
+                try:
+                    container=resolve_collection(step['target'],obs,step.get('hints',()))
+                    grounded_state={'status':'passed','reason':step['target']+' collection is visible.',
+                                    'evidence':str(container.get('resource_id'))+'; bounds '+str(container['bounds'])}
+                except CollectionError as exc:
+                    grounded_state={'status':'blocked','reason':str(exc),'evidence':'No unique visible collection was grounded.'}
             if grounded_state:
                 result=grounded_state
                 visible_evidence=None
@@ -3993,6 +4049,8 @@ def run_sequential_plan(
 
         (folder/f'{observation_index:02d}-assessment.json').write_text(
             json.dumps(assessment,ensure_ascii=False,indent=2),encoding='utf-8')
+        if captured_reference:
+            usage['value_reference']='$'+captured_reference
         record={'observation':observation_index,'plan_step':step,
                 'decision':decision,'usage':usage,
                 'step_completed':bool(advance)}

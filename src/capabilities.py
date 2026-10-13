@@ -15,6 +15,13 @@ class CapabilitySpec:
 REGISTRY = {
     spec.name:spec for spec in (
         CapabilitySpec(
+            'scroll_until_visible',frozenset({'action'}),requires_target=True,
+            requires_value=True,requires_direction=True,
+            description='Bounded search for target collection by scrolling parent collection named in value.'),
+        CapabilitySpec(
+            'capture_text',frozenset({'action'}),requires_target=True,requires_value=True,
+            description='Capture one grounded ordinal item text field into a named runtime variable.'),
+        CapabilitySpec(
             'tap',frozenset({'action'}),requires_target=True,
             description='Tap a visible semantic target.'),
         CapabilitySpec(
