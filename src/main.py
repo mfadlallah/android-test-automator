@@ -1,5 +1,7 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
 from .debug import debug_print
+from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
+                          swipe_points, scroll_changed, descendants)
 import argparse
 import base64
 import hashlib
@@ -576,14 +578,12 @@ class Device:
         if action=='tap':
             self.adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2))
         else:
-            if not node['scrollable'] or y2-y1<100: raise Blocked('Target is not a usable scroll container')
-            x=(x1+x2)//2
-            # Start near the bottom of the actual Restaurants list. The
-            # screen contains headers, carousels and filters, so a central
-            # swipe can be consumed by the wrong component.
-            lo=y1+int((y2-y1)*.28); hi=y1+int((y2-y1)*.88)
-            start,end=(hi,lo) if decision['direction']=='down' else (lo,hi)
-            self.adb('shell','input','swipe',str(x),str(start),str(x),str(end),'600')
+            if not node['scrollable']: raise Blocked('Target is not a usable scroll container')
+            try:
+                points=swipe_points(node['bounds'],decision['direction'])
+            except CollectionError as exc:
+                raise Blocked(str(exc)) from exc
+            self.adb('shell','input','swipe',*(str(p) for p in points),'600')
 
         # Use adaptive stability waiting - full screen for taps (affects distant UI)
         # Exception: Skip for certain buttons (Apply, Clear) that don't need stability checks
@@ -1074,6 +1074,14 @@ def semantic_target_bounds(obs,target):
 
 
 def assertion_crop_bounds(obs,step):
+    if ordinal(step.get('target','')) not in (None,1):
+        try:
+            container,item=resolve_item(step['target'],obs,step.get('hints',()))
+        except CollectionError as exc:
+            raise Blocked(str(exc)) from exc
+        obs['ordinal_item_scope']={'container':container['node'],'item':item['node'],
+                                  'bounds':item['bounds'],'ordinal':ordinal(step['target'])}
+        return list(item['bounds'])
     """Return a safe target crop for label-based visual assertions.
 
     Uses generic adapter for semantic matching and item detection.
@@ -1594,7 +1602,11 @@ def assess_plan_assertion(
     # Re-run OCR on every grounded label crop. Besides exact contains checks,
     # this gives the model high-resolution textual evidence for visibility,
     # hidden-state and selected-state assertions.
-    deterministic=(collection_visible(step,obs,crop_bounds)
+    item_scope=obs.get('ordinal_item_scope')
+    ordinal_visible=({'status':'passed','reason':step['target']+' is visible.',
+                     'evidence':'Grounded ordinal item inside collection: '+json.dumps(item_scope)}
+                    if item_scope and step['capability']=='assert_visible' else None)
+    deterministic=(ordinal_visible or collection_visible(step,obs,crop_bounds)
                    or scoped_exact_value_result(obs,step,crop_bounds))
     crop_ocr=[]
     if deterministic is None and crop_bounds:
@@ -1922,6 +1934,17 @@ def semantic_visible_evidence(obs,target,hints=()):
 
 def semantic_tap_decision(obs,target,hints=()):
     """Ground a generic tap with label-first deterministic precedence."""
+    if ordinal(target) is not None:
+        try:
+            container,item=resolve_item(target,obs,hints)
+        except CollectionError as exc:
+            raise Blocked(str(exc)) from exc
+        if not item.get('enabled',True) or not item.get('clickable'):
+            raise Blocked('The grounded item root is not enabled/clickable: '+target)
+        return ({'action':'tap','node':item['node'],'direction':'none',
+                 'reason':'Tap '+target+' inside its grounded collection.',
+                 'evidence':'Collection node '+str(container['node'])+'; item node '+str(item['node'])+'; bounds '+str(item['bounds'])},
+                {'source':'generic_tap','localization':'collection_ordinal'})
     def normalize(value):
         value=str(value or '').replace('\u200e','').replace('\u200f','')
         return ' '.join(value.split()).casefold()
@@ -3864,30 +3887,40 @@ def run_sequential_plan(
                 usage['source']='navigation_gate'
             usage['step_id']=step['id']; advance=True
         elif capability=='scroll':
-            scrollables=[node for node in obs.get('nodes',[])
-                         if node.get('enabled') and node.get('scrollable')
-                         and node['bounds'][3]-node['bounds'][1]>=100]
-            restaurants=[node for node in scrollables
-                         if node.get('resource_id','').endswith(
-                             ':id/vendorsRecycler')]
-            if len(restaurants)==1:
+            try:
+                container=resolve_collection(step['target'],obs,step.get('hints',()),step['direction'])
+            except CollectionError as exc:
+                container=None
+                collection_error=str(exc)
+            if container is not None:
                 decision={
-                    'action':'scroll','node':restaurants[0]['node'],
+                    'action':'scroll','node':container['node'],
                     'direction':step['direction'],'reason':'Scroll '+step['target']+'.',
-                    'evidence':'Grounded vendorsRecycler on Restaurants.',
+                    'evidence':'Grounded collection '+str(container.get('resource_id') or container['node'])+'; bounds '+str(container['bounds'])+'; direction '+step['direction'],
                 }
-            elif current_restaurants_listing(obs):
+            elif (not obs.get('nodes') and step['direction']=='down'
+                  and not re.search(r'(?i)horizontal|swimlane|carousel',step['target'])
+                  and current_restaurants_listing(obs)):
                 decision={
                     'action':'screen_scroll','node':None,
                     'direction':step['direction'],'reason':'Scroll '+step['target']+'.',
                     'evidence':'Restaurants listing grounded from current screenshot.',
                 }
             else:
-                return finish('BLOCKED','Could not ground scroll target '+step['target'])
+                return finish('BLOCKED',collection_error)
             usage={'source':'generic_scroll','step_id':step['id']}
             advance=True
         elif capability=='assert_scrolled':
-            changed,evidence=observed_scroll_change(last_action_obs,obs)
+            preceding={}
+            try:
+                preceding=next(item['plan_step'] for item in reversed(history)
+                               if item.get('step_completed') and item.get('plan_step',{}).get('capability')=='scroll')
+                changed,evidence=scroll_changed(last_action_obs,obs,preceding['target'],preceding['direction'],preceding.get('hints',()))
+            except (CollectionError,StopIteration):
+                if (not obs.get('nodes') or not (last_action_obs or {}).get('nodes')) and preceding.get('direction') in {'up','down'}:
+                    changed,evidence=observed_scroll_change(last_action_obs,obs)
+                else:
+                    changed,evidence=False,'Scoped scroll evidence could not be grounded.'
             if changed:
                 decision={'action':'step_pass','node':None,'direction':'none',
                           'reason':'Scroll assertion passed.','evidence':evidence}
@@ -3901,6 +3934,15 @@ def run_sequential_plan(
                             or selected_assertion(step,obs))
             if grounded_state:
                 result=grounded_state
+                visible_evidence=None
+            elif ordinal(step.get('target','')) not in (None,1):
+                try:
+                    container,item=resolve_item(step['target'],obs,step.get('hints',()))
+                    result=assertion_assessor(step,obs,last_action_obs)
+                    grounded_state=result
+                except CollectionError as exc:
+                    result={'status':'blocked','reason':str(exc),'evidence':'The ordinal item scope is unavailable.'}
+                    grounded_state=result
                 visible_evidence=None
             elif current_home_screen(obs):
                 result={
@@ -4238,6 +4280,19 @@ def main():
                     raise
                 except Exception as exc:
                     attempt_reason=str(exc)
+                    # The executor may raise before returning its history. Keep
+                    # prior auditable decisions instead of reporting zero steps.
+                    records=sorted(attempt_folder.glob('*-decision.json'),
+                                   key=lambda path:int(path.name.split('-')[0]))
+                    attempt_history=[json.loads(path.read_text()) for path in records]
+                    (attempt_folder/'step-results.json').write_text(json.dumps(
+                        step_result_summary(plan,attempt_history,attempt_folder),
+                        ensure_ascii=False,indent=2),encoding='utf-8')
+                    (attempt_folder/'exception.json').write_text(json.dumps({
+                        'type':type(exc).__name__,'reason':str(exc),
+                        'completed_step_ids':[record.get('plan_step',{}).get('id')
+                                              for record in attempt_history if record.get('step_completed')],
+                    },ensure_ascii=False,indent=2),encoding='utf-8')
                 attempt_report={
                     'attempt':attempt,'status':attempt_status,
                     'reason':attempt_reason,'history':attempt_history,
