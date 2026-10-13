@@ -7,6 +7,12 @@ See [RFC v0](RFC.md) for architecture, trade-offs, ownership, and rollout.
 
 ## Nested collection search and captured titles
 
+Every compiled navigation plan includes an optional recovery checkpoint after
+its first navigation tap, even when the author omits it. Existing checkpoints
+are not duplicated. Independently, the runner checks grounded unexpected
+foreground interruptions before each step, resumes the pending step after
+recovery, and protects planned modals. Dimming alone does not authorize Back.
+
 Collection IDs are matched exactly before semantic token matching. An explicit
 missing ID cannot resolve to another carousel or pass visibility on AI prose.
 The planner rejects omitted explicit taps and literal ordinal-title placeholders.

@@ -577,6 +577,27 @@ def compile_controlled_case(case_text):
     return {'version':1,'name':name,'steps':steps}
 
 
+def ensure_optional_recovery(plan):
+    """Include a standard checkpoint; per-observation recovery stays global."""
+    if any(s.get('capability')=='recover_optional' for s in plan.get('steps',[])):
+        return plan
+    steps=[dict(s) for s in plan.get('steps',[])]
+    navigation=next((i for i,s in enumerate(steps) if s.get('capability')=='tap'),None)
+    if navigation is None:
+        return plan
+    ids={s.get('id') for s in steps}
+    identifier='auto-recovery'; suffix=2
+    while identifier in ids:
+        identifier='auto-recovery-'+str(suffix); suffix+=1
+    steps.insert(navigation+1,{
+        'id':identifier,'capability':'recover_optional','role':'recovery',
+        'target':'','value':'','position':'none','direction':'none',
+        'optional':True,'hints':[],
+        'success':'Recover safely from any optional foreground sheet',
+    })
+    return {**plan,'steps':steps}
+
+
 def compile_case(request, model, case_text, timeout=180):
     control_options=extract_control_options(case_text)
     transition=extract_control_transition(case_text,control_options)
@@ -612,6 +633,7 @@ def compile_case(request, model, case_text, timeout=180):
                 canonical=canonicalize_model_plan(
                     raw,control_options,transition,scroll_requested,
                     scroll_direction)
+                canonical=ensure_optional_recovery(canonical)
                 plan=validate_executable_plan(validate_plan(canonical))
                 validate_source_actions(case_text,plan)
                 plan['plan_source']='ai'
@@ -648,6 +670,7 @@ def compile_case(request, model, case_text, timeout=180):
     if fallback is not None:
         canonical=canonicalize_model_plan(
             fallback,control_options,transition,scroll_requested,scroll_direction)
+        canonical=ensure_optional_recovery(canonical)
         plan=validate_executable_plan(validate_plan(canonical))
         validate_source_actions(case_text,plan)
         plan['plan_source']='controlled_fallback'
