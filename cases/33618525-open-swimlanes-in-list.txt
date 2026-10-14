@@ -1,10 +1,9 @@
 TestRail ID: T33618525
-Title: Verify that clicking on a visible vendor in swimlanes opens its menu
+Title: Verify that clicking on any vendor in swimlanes will direct user to vendor menu screen
 
 Preconditions:
 - The app is installed and the user is already logged in.
 - Home is displayed after launch.
-- Item 3 means the third identity-tracked item from the observed collection start, not the third simultaneously visible card.
 
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
@@ -14,13 +13,11 @@ Steps:
 5. Seek item 3 in horizontal_scroll by scrolling left (resource-id hints: horizontal_scroll, vendor_name).
 6. Capture tracked item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
 7. Tap tracked item of horizontal_scroll (resource-id hint: horizontal_scroll).
-8. Verify vendor_name is visible (resource-id hint: vendor_name).
-9. Verify vendor_name contains $vendor_title (resource-id hint: vendor_name).
+8. Verify Menu screen is open and contains $vendor_title.
 
 Expected result:
-- A vendor in the horizontal collection is tapped after a scoped horizontal scroll.
-- The destination vendor title matches the captured item title.
-
-Notes:
-- The tracker first seeks an observed start boundary, then follows overlapping item identities.
-- It does not claim the fourth parent position or a backend index. Duplicate titles, lost overlap, or an ungrounded boundary block rather than guess.
+- The Vendors recyclerview scrolled to item number 4.
+- Item number 4 in Vendors recyclerview is visible and contains horizontal RecyclerView (resource-id hint: horizontal_scroll).
+- The horizontal recyclerview scrolled left to item number 3.
+- The item number 3 of horizontal RecyclerView (resource-id hint: horizontal_scroll) tapped successfully.
+- Menu screen is open and contains title equal to title of tracked item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
