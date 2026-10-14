@@ -94,3 +94,26 @@ class RuntimeValuesTests(unittest.TestCase):
         plan={'steps':[{'capability':'tap','target':'Third visible item','value':''},
                        {'capability':'assert_contains','target':'menu','value':'third item title'}]}
         with self.assertRaises(PlanError): validate_source_actions('Steps:\n1. Tap Third visible item.\nExpected result:',plan)
+
+class ScreenCapturedValueTests(unittest.TestCase):
+    def setUp(self):
+        self.capture={'text':'Selected Item','scope':{'collection_resource_id':'demo:id/cards'}}
+        self.step={'capability':'assert_contains','target':'Details screen','value':'Selected Item','hints':[]}
+        self.obs={'nodes':[node(1,None,[0,100,600,200],text='Selected Item',resource_id='')]}
+
+    def test_without_destination_id_matches_visible_exact_text(self):
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'passed')
+
+    def test_source_title_or_unconfirmed_destination_does_not_pass(self):
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture)['status'],'blocked')
+        self.obs['nodes'].append(node(9,None,[0,300,600,800],resource_id='demo:id/cards'))
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
+
+    def test_ocr_fallback_requires_destination_evidence_and_exact_label(self):
+        self.obs['nodes'][0]['text']='Details'
+        self.obs['ocr']=[{'text':'Selected Item','bounds':[0,100,500,200],'confidence':.99}]
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'passed')
+        self.obs['ocr'][0]['text']='Selected Item Plus'
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
+        self.obs['nodes']=[]
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')

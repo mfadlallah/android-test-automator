@@ -4026,7 +4026,18 @@ def run_sequential_plan(
             grounded_state=(modal_assertion(step,obs,modal_identities)
                             or selected_assertion(step,obs))
             if captured_reference:
-                grounded_state=captured_destination_result(step,obs,captured[captured_reference])
+                navigation_observation=max((r.get('observation',-1) for r in history
+                    if r.get('step_completed') and r.get('decision',{}).get('action')=='tap'
+                    and r.get('observation',-1)>captured[captured_reference].get('observation',-1)),default=None)
+                destination_confirmed=any(
+                    r.get('step_completed') and r.get('plan_step',{}).get('capability')=='assert_visible'
+                    and r.get('plan_step',{}).get('target','').casefold()==step['target'].casefold()
+                    and navigation_observation is not None and r.get('observation',-1)>navigation_observation
+                    for r in history)
+                grounded_state=captured_destination_result(step,obs,captured[captured_reference],destination_confirmed)
+                (folder/f'{observation_index:02d}-captured-comparison.json').write_text(
+                    json.dumps({'step':step,'capture':captured[captured_reference],
+                                'destination_confirmed':destination_confirmed,'result':grounded_state},ensure_ascii=False,indent=2),encoding='utf-8')
             # An explicitly named collection cannot pass on model prose alone.
             collection_target=(capability=='assert_visible' and
                 (re.search(r'(?i)recyclerview|vertical.*list',step['target'])

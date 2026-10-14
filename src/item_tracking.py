@@ -4,19 +4,29 @@ from .collections import CollectionError, resolve_collection, items, descendants
 OPPOSITE={'left':'right','right':'left','up':'down','down':'up'}
 
 
-def window(target, obs, hints, direction):
+def window(target, obs, hints, direction, known_target=None, ignored=None):
     container=resolve_collection(target,obs,hints,direction)
     dim=0 if direction in {'left','right'} else 1
     if axis(container,obs)!=('horizontal' if dim==0 else 'vertical'):
         raise CollectionError('Tracked collection axis is not grounded.')
     ids={h.split(':id/')[-1].casefold() for h in hints}
     rows=[]
-    for item in sorted(items(container,obs),key=lambda n:n['bounds'][dim]):
+    children=sorted(items(container,obs),key=lambda n:n['bounds'][dim])
+    for index,item in enumerate(children):
         fields=[n for n in [item,*descendants(item,obs.get('nodes',[]))]
                 if n.get('text','').strip() and n.get('resource_id','').split(':id/')[-1].casefold() in ids
                 and len(n.get('bounds',[]))==4 and n['bounds'][2]>n['bounds'][0] and n['bounds'][3]>n['bounds'][1]]
         if len(fields)!=1:
-            raise CollectionError('Tracking requires one identity field per visible item; provide its resource-id hint.')
+            box=item['bounds'];cb=container['bounds']
+            target_seen=known_target is not None and any(r['identity']==tuple(known_target) for r in rows)
+            trailing_edge=(index==len(children)-1 and box[dim+2]>=cb[dim+2])
+            # Never skip an unknown ordinal. Only an unreadable final edge
+            # fragment AFTER an already identified target may be excluded.
+            if not fields and target_seen and trailing_edge:
+                if ignored is not None:
+                    ignored.append({'node':item['node'],'bounds':box,'reason':'Unreadable trailing edge after known target; not counted.'})
+                continue
+            raise CollectionError('Tracking requires one identity field per visible item; node='+str(item['node'])+' bounds='+str(item['bounds'])+' matches='+str(len(fields)))
         field=fields[0]
         rows.append({'identity':(field['resource_id'],field['text'].strip()),'item':item,'field':field})
     keys=[r['identity'] for r in rows]
@@ -34,12 +44,18 @@ class ItemTracker:
         self.stalls=0;self.sequence=[];self.extent=0;self.trace=[];self.selected=None
 
     def observe(self,obs):
-        container,rows=window(self.target,obs,self.hints,self.direction)
+        known=self.sequence[self.number-1] if len(self.sequence)>=self.number else None
+        ignored=[]
+        try:
+            container,rows=window(self.target,obs,self.hints,self.direction,known,ignored)
+        except CollectionError as exc:
+            self.trace.append({'phase':self.phase,'swipes':self.swipes,'error':str(exc)})
+            raise
         dim=0 if self.direction in {'left','right'} else 1
         signature=[(r['identity'],r['item']['bounds'][dim],r['item']['bounds'][dim+2]) for r in rows]
         self.extent=max(self.extent,max(r['item']['bounds'][dim+2]-r['item']['bounds'][dim] for r in rows))
         self.trace.append({'phase':self.phase,'window':[list(r['identity']) for r in rows],
-                           'bounds':[r['item']['bounds'] for r in rows],'swipes':self.swipes})
+                           'bounds':[r['item']['bounds'] for r in rows],'swipes':self.swipes,'ignored_edges':ignored})
         if self.phase=='anchor':
             self.stalls=self.stalls+1 if signature==self.previous else 0
             if self.stalls<2:
@@ -88,7 +104,7 @@ class ItemTracker:
 
 
 def resolve_tracked(selected,obs):
-    container,rows=window(selected['target'],obs,selected['hints'],selected['direction'])
+    container,rows=window(selected['target'],obs,selected['hints'],selected['direction'],selected['identity'])
     matches=[r for r in rows if list(r['identity'])==selected['identity']]
     if len(matches)!=1:
         raise CollectionError('Previously tracked item identity is missing or ambiguous in the current observation.')

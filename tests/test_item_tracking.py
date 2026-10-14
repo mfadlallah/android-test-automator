@@ -85,3 +85,31 @@ class TrackedExecutionTests(unittest.TestCase):
             self.assertTrue((Path(folder)/'item-tracking.json').exists())
         self.assertIn(('tap',11),device.calls)
         self.assertEqual(sum(r['step_completed'] for r in history),4)
+
+class EdgeWindowTests(unittest.TestCase):
+    def test_replay_anonymized_device_windows_selects_third_before_unreadable_tail(self):
+        import json
+        from pathlib import Path
+        from src.collections import capture_item_text
+        scenes=json.loads(Path('tests/fixtures/tracked-edge-windows.json').read_text())
+        t=ItemTracker('horizontal_cards',3,['horizontal_cards','item_title'],'left')
+        for obs in scenes[:-1]:self.assertIsNotNone(t.observe(obs))
+        self.assertIsNone(t.observe(scenes[-1]))
+        self.assertEqual(t.selected['identity'],['demo:id/item_title','Item C'])
+        self.assertEqual(t.selected['bounds'],[318,594,1062,1215])
+        self.assertEqual(len(t.trace[-1]['ignored_edges']),1)
+        resolved=resolve_tracked(t.selected,scenes[-1])
+        title,_=capture_item_text('tracked item of horizontal_cards',scenes[-1],['item_title'],resolved)
+        self.assertEqual(title,'Item C')
+
+    def test_unknown_before_target_or_interior_still_blocks(self):
+        obs=scene(('A','B','C'),(0,300,600),(300,300,480))
+        obs['nodes']=[n for n in obs['nodes'] if n['node']!=21]
+        from src.item_tracking import window
+        with self.assertRaises(CollectionError):window('cards',obs,['cards','title'],'left',['p:id/title','C'])
+
+    def test_unknown_tail_does_not_supply_missing_ordinal(self):
+        obs=scene();obs['nodes']=[n for n in obs['nodes'] if n['node']!=21]
+        with self.assertRaises(CollectionError):self._observe(obs)
+
+    def _observe(self,obs):return ItemTracker('cards',3,['cards','title'],'left').observe(obs)

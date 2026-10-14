@@ -34,6 +34,14 @@ Three reusable capabilities support the swimlane journey:
 Use `assert_contains` with `$variable_name` to compare the captured title exactly
 with one destination resource-ID field outside the source collection. Missing,
 ambiguous or uncaptured evidence blocks; a different title fails.
+Alternatively, use `Verify Details screen is open` followed by `Verify Details
+screen contains $variable_name`, with no destination resource ID. After a tap
+following capture and a completed screen-visibility assertion, the comparison
+requires a fresh hierarchy with the source collection absent and searches exact
+visible text through hierarchy, then OCR. Missing screen proof or text blocks;
+a whole-screen text hit alone cannot establish navigation. Screen identity may
+still depend on the existing visual assessor. `*-captured-comparison.json`
+records the comparison and its navigation confirmation flag.
 
 The updated swimlane case targets the third item from the **observed collection
 start**, even when only two cards fit on screen. Duplicate identities, lost
@@ -42,6 +50,12 @@ supports horizontal and vertical lists. The boundary is inferred from observed
 non-movement, not an authoritative backend index: stalled gestures can mimic an
 edge. It does not prove an absolute fourth parent, and requires live-device
 validation on the target layouts.
+
+An unreadable final edge fragment after an already identified target may be
+excluded from the selection window; it is recorded in `ignored_edges` and never
+counted as an item. Unknown items before the target or inside the sequence still
+block. This permits capture/tap of a fully exposed tracked item even when a tiny
+piece of the following card has no title node.
 
 ## Current scope
 

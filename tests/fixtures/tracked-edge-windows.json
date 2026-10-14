@@ -1,0 +1,493 @@
+[
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          22,
+          594,
+          766,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 59,
+        "parent": 45,
+        "bounds": [
+          56,
+          989,
+          720,
+          1053
+        ],
+        "text": "Item A",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 69,
+        "parent": 44,
+        "bounds": [
+          766,
+          594,
+          1080,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 79,
+        "parent": 69,
+        "bounds": [
+          929,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          22,
+          594,
+          766,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 59,
+        "parent": 45,
+        "bounds": [
+          56,
+          989,
+          720,
+          1053
+        ],
+        "text": "Item A",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 69,
+        "parent": 44,
+        "bounds": [
+          766,
+          594,
+          1080,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 79,
+        "parent": 69,
+        "bounds": [
+          929,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          22,
+          594,
+          766,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 59,
+        "parent": 45,
+        "bounds": [
+          56,
+          989,
+          720,
+          1053
+        ],
+        "text": "Item A",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 69,
+        "parent": 44,
+        "bounds": [
+          766,
+          594,
+          1080,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 79,
+        "parent": 69,
+        "bounds": [
+          929,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          0,
+          594,
+          468,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 55,
+        "parent": 45,
+        "bounds": [
+          0,
+          989,
+          422,
+          1053
+        ],
+        "text": "Item A",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 64,
+        "parent": 44,
+        "bounds": [
+          468,
+          594,
+          1080,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 80,
+        "parent": 64,
+        "bounds": [
+          631,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          0,
+          594,
+          170,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 53,
+        "parent": 45,
+        "bounds": [
+          0,
+          989,
+          124,
+          1053
+        ],
+        "text": "Item A",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 55,
+        "parent": 44,
+        "bounds": [
+          170,
+          594,
+          914,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 73,
+        "parent": 55,
+        "bounds": [
+          333,
+          989,
+          868,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 87,
+        "parent": 44,
+        "bounds": [
+          914,
+          594,
+          1080,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 94,
+        "parent": 87,
+        "bounds": [
+          948,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item C",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          0,
+          594,
+          616,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 62,
+        "parent": 45,
+        "bounds": [
+          35,
+          989,
+          570,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 74,
+        "parent": 44,
+        "bounds": [
+          616,
+          594,
+          1080,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 84,
+        "parent": 74,
+        "bounds": [
+          650,
+          989,
+          1080,
+          1053
+        ],
+        "text": "Item C",
+        "resource_id": "demo:id/item_title"
+      }
+    ]
+  },
+  {
+    "nodes": [
+      {
+        "node": 44,
+        "bounds": [
+          0,
+          594,
+          1080,
+          1300
+        ],
+        "scrollable": true,
+        "enabled": true,
+        "parent": null,
+        "resource_id": "demo:id/horizontal_cards"
+      },
+      {
+        "node": 45,
+        "parent": 44,
+        "bounds": [
+          0,
+          594,
+          318,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 56,
+        "parent": 45,
+        "bounds": [
+          0,
+          989,
+          272,
+          1053
+        ],
+        "text": "Item B",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 64,
+        "parent": 44,
+        "bounds": [
+          318,
+          594,
+          1062,
+          1215
+        ],
+        "clickable": true,
+        "enabled": true
+      },
+      {
+        "node": 78,
+        "parent": 64,
+        "bounds": [
+          352,
+          989,
+          1016,
+          1053
+        ],
+        "text": "Item C",
+        "resource_id": "demo:id/item_title"
+      },
+      {
+        "node": 88,
+        "parent": 44,
+        "bounds": [
+          1062,
+          594,
+          1080,
+          1300
+        ],
+        "clickable": true,
+        "enabled": true
+      }
+    ]
+  }
+]
