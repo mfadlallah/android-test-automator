@@ -1,5 +1,5 @@
 TestRail ID: T33618525
-Title: Verify that clicking on any vendor in swimlanes will direct user to vendor menu screen
+Title: Verify that opening a vendor from a swimlane displays its Menu screen with the matching title.
 
 Preconditions:
 - The app is installed and the user is already logged in.
@@ -11,13 +11,19 @@ Steps:
 3. Scroll down within Vendors RecyclerView until horizontal_scroll is visible (resource-id hint: horizontal_scroll).
 4. Verify horizontal_scroll is visible (resource-id hint: horizontal_scroll).
 5. Seek item 3 in horizontal_scroll by scrolling left (resource-id hints: horizontal_scroll, vendor_name).
-6. Capture vendor_title in tracked item 3 of horizontal_scroll  (resource-id hints: vendor_name).
-7. Tap tracked item 3 of horizontal_scroll (resource-id hint: horizontal_scroll).
-8. Verify Menu screen is open and contains $vendor_title.
+6. Capture tracked item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
+7. Tap tracked item of horizontal_scroll (resource-id hint: horizontal_scroll).
+8. Verify Menu screen is open.
+9. Verify Menu screen contains $vendor_title.
 
 Expected result:
-- The Vendors recyclerview scrolled to item number 4.
-- Item number 4 in Vendors recyclerview is visible and contains horizontal RecyclerView (resource-id hint: horizontal_scroll).
-- The horizontal recyclerview scrolled left to item number 3.
-- The item number 3 of horizontal RecyclerView (resource-id hint: horizontal_scroll) tapped successfully.
-- Menu screen is open and contains title equal to title of tracked item of horizontal RecyclerView (resource-id hint: horizontal_scroll).
+- The horizontal RecyclerView is revealed.
+- Item 3 from the observed collection start is located using identity tracking.
+- Its title is captured as vendor_title.
+- The same tracked item is tapped and its Menu screen opens.
+- The captured title is visible on the Menu screen.
+
+Notes:
+- Item 3 does not mean the third simultaneously visible card.
+- The swimlane heading may change dynamically.
+- Unexpected optional sheets are handled throughout execution.
