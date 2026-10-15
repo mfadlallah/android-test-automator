@@ -16,6 +16,12 @@ recovery, and protects planned modals. Dimming alone does not authorize Back.
 Collection IDs are matched exactly before semantic token matching. An explicit
 missing ID cannot resolve to another carousel or pass visibility on AI prose.
 The planner rejects omitted explicit taps and literal ordinal-title placeholders.
+Explicit control-option taps may compile to `set_control` only when their value
+and side match the source instruction; they are not missing taps. The model's
+case-specific capability schema excludes `seek_item` unless ordinal navigation
+is requested. Label assertions do not imply list navigation. Regression checks
+compile all five repository cases through the fallback path, including layout
+setup/transitions and sorting steps with explanatory `now`/`to apply` wording.
 
 Three reusable capabilities support the swimlane journey:
 - `scroll_until_visible`: scroll the parent collection named in `value`, in

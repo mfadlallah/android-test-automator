@@ -454,12 +454,12 @@ def compile_controlled_case(case_text):
     current_hints=[]
 
     def add(capability,role,target='',value='',direction='none',optional=False,
-            success=''):
+            success='',position='none'):
         nonlocal counter
         counter+=1
         steps.append({
             'id':str(counter),'capability':capability,'role':role,
-            'target':target,'hints':list(current_hints),'value':value,'position':'none',
+            'target':target,'hints':list(current_hints),'value':value,'position':position,
             'direction':direction,'optional':optional,
             'success':success or capability+' completed',
         })
@@ -472,6 +472,15 @@ def compile_controlled_case(case_text):
             return ''
         line=re.sub(r'(?i)\(resource-id hints?:\s*([^)]*)\)',remove_hint,line).strip(' .')
         lowered=line.casefold()
+        control=re.match(r'(?i)^(set up|tap)\s+([\w-]+)\s+(?:view|mode|layout)\s*\((left|right)\s+toggle\s+option\)',line)
+        if control:
+            role='setup' if control[1].casefold()=='set up' else 'action'
+            options=extract_control_options(case_text)
+            if options.get(control[3].casefold())!=control[2].casefold():
+                return None
+            add('set_control',role,'two-option control',control[2].casefold(),
+                success=line,position=control[3].casefold())
+            continue
         search=re.fullmatch(r'(?i)scroll (up|down|left|right) within (.+?) until (.+?) is visible',line)
         if search:
             add('scroll_until_visible','action',search[3],search[2],search[1].lower(),success=line)
@@ -493,6 +502,7 @@ def compile_controlled_case(case_text):
                 target=quoted.group(1)
             else:
                 body=re.sub(r'(?i)^tap(?:\s+on)?\s+','',line)
+                body=re.split(r'(?i)\s+to\s+(?:open|apply|select)\b',body,maxsplit=1)[0]
                 body=re.split(
                     r'(?i)\s+(?:option\s+in|option\s+under|in\s+the|under\s+the|on\s+Home)\b',
                     body,maxsplit=1)[0]
@@ -512,10 +522,17 @@ def compile_controlled_case(case_text):
             continue
         if re.match(r'(?i)^wait\s+until\b',line):
             target=re.sub(r'(?i)^wait\s+until\s+','',line)
+            target=re.sub(r'(?i)\s+change\s+and\s+finish\s+loading(?:\s+after\s+.+)?$','',target)
             add('wait_changed','assertion',_controlled_target(target),success=line)
             continue
         if re.match(r'(?i)^verify\b',line):
             body=re.sub(r'(?i)^verify(?:\s+that)?\s+','',line)
+            body=re.sub(r'(?i)\b(is|are)\s+now\s+(?=visible|hidden|selected|closed|open)',r'\1 ',body)
+            body=re.sub(r'(?i)\s+now\s+(?=contains\b)',' ',body)
+            change=re.fullmatch(r'(?i)(.+?)\s+change\s+from\s+(.+?)\s+to\s+(.+)',body)
+            if change:
+                add('assert_changed','assertion',_controlled_target(change[1]),success=line)
+                continue
             negative=re.match(
                 r'(?i)^(?P<target>.+?)\s+does\s+not\s+contain\s+'
                 r'(?P<value>["“]?.+?["”]?)\s*(?:label)?\.?$',body)
@@ -606,6 +623,14 @@ def ensure_optional_recovery(plan):
     return {**plan,'steps':steps}
 
 
+def requests_item_tracking(case_text):
+    body=re.search(r'(?ims)^\s*Steps:\s*(.*?)(?=^\s*Expected result:|\Z)',case_text)
+    text=body[1] if body else case_text
+    return bool(re.search(r'(?i)\bseek\s+item\s+\d+',text) or any(
+        (ordinal(line) or 0)>1 and re.search(r'(?i)\bscroll|\breveal|\breach',line)
+        for line in text.splitlines()))
+
+
 def compile_case(request, model, case_text, timeout=180):
     control_options=extract_control_options(case_text)
     transition=extract_control_transition(case_text,control_options)
@@ -618,11 +643,17 @@ def compile_case(request, model, case_text, timeout=180):
         ', '.join(side+'='+value for side,value in sorted(control_options.items()))
         if control_options else ''
     )
-    catalog=json.dumps(capability_catalog(),separators=(',',':'))
+    allowed=[name for name in CAPABILITIES if name!='seek_item' or requests_item_tracking(case_text)]
+    schema=json.loads(json.dumps(PLAN_SCHEMA))
+    schema['properties']['steps']['items']['properties']['capability']['enum']=allowed
+    catalog=json.dumps([s for s in capability_catalog() if s['name'] in allowed],separators=(',',':'))
     messages=[
         {'role':'system','content':PLANNER_PROMPT+
          ' Canonical capability catalog: '+catalog+' Schema: '+
-         json.dumps(PLAN_SCHEMA,separators=(',',':'))},
+         json.dumps(schema,separators=(',',':'))+
+         ' Only capabilities in this case-specific schema are allowed. '+
+         'First-item label assertions use assert_contains/assert_not_contains, '+
+         'not seek_item; seek_item is an explicit ordinal navigation action.'},
         {'role':'user','content':'Test case:\n'+case_text+vocabulary},
     ]
     last_error='Local planner did not return a valid plan.'
@@ -630,7 +661,7 @@ def compile_case(request, model, case_text, timeout=180):
     for attempt in range(3):
         response=request('/api/chat',{
             'model':model,'messages':messages,'stream':False,
-            'format':PLAN_SCHEMA,
+            'format':schema,
             'options':{'temperature':0,'num_ctx':8192,'num_predict':1200},
         },timeout)
         content=''
@@ -777,9 +808,21 @@ def validate_source_actions(case_text, plan):
     if not body:
         return
     lines=re.findall(r'(?m)^\s*\d+\.\s*(.+)$',body[1])
+    if not requests_item_tracking(case_text) and any(s['capability']=='seek_item' for s in plan['steps']):
+        raise PlanError('Unrequested seek_item action; label presence assertions must not navigate the list.')
     taps=[s for s in plan['steps'] if s['capability']=='tap']
     source_taps=[line for line in lines if re.match(r'(?i)tap\b',line)]
-    if len(taps)<len(source_taps):
+    control_actions=[s for s in plan['steps'] if s['capability']=='set_control' and s['role']=='action']
+    ordinary_taps=[]
+    for line in source_taps:
+        match=next((s for s in control_actions if s.get('value')
+                    and re.search(r'(?i)\b'+re.escape(s['value'])+r'\s+(?:view|mode|layout)\b',line)
+                    and re.search(r'(?i)\b'+re.escape(s['position'])+r'\b',line)),None)
+        if match is not None:
+            control_actions.remove(match)
+        else:
+            ordinary_taps.append(line)
+    if len(taps)<len(ordinary_taps):
         raise PlanError('Plan omitted an explicit Tap action; visibility cannot replace a tap.')
     for line in source_taps:
         number=ordinal(line)
