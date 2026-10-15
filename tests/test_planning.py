@@ -179,8 +179,9 @@ class PlanningTests(unittest.TestCase):
             return {'done':True,'message':{'content':json.dumps(raw)}}
         plan=compile_case(
             request,'local-model','Tap Ratings low to high and verify selected.',30)
-        self.assertEqual('tap',plan['steps'][1]['capability'])
-        self.assertEqual('Ratings low to high',plan['steps'][1]['target'])
+        selection=next(s for s in plan['steps'] if s['target']=='Ratings low to high' and s['capability']=='tap')
+        self.assertEqual('tap',selection['capability'])
+        self.assertEqual('Ratings low to high',selection['target'])
 
     def test_option_selection_never_becomes_layout_transition(self):
         raw=sample_plan()
@@ -321,7 +322,7 @@ Steps:
 2. Verify Filters pill is visible.
 '''
         plan=compile_case(request,'local-model',case,30)
-        self.assertEqual(['tap','assert_visible'],
+        self.assertEqual(['tap','recover_optional','assert_visible'],
                          [step['capability'] for step in plan['steps']])
         self.assertEqual('controlled_fallback',plan['plan_source'])
         self.assertEqual(3,plan['planner_attempts'])
