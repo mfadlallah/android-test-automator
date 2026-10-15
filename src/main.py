@@ -740,8 +740,14 @@ def contains_statement_is_negative(value,statement):
     statement=' '.join(str(statement or '').split()).casefold()
     if not value:
         return False
-    escaped=re.escape(value)
-    return any(re.search(pattern,statement) for pattern in (
+    # Preserve punctuation and words such as "No" inside the expected label.
+    # A negation in a separate evidence clause describes a different fact;
+    # e.g. "title matched; source collection absent" is positive title evidence.
+    marker='assertion_expected_value_token'
+    statement=re.sub(re.escape(value),lambda _:marker,statement)
+    escaped=re.escape(marker)
+    clauses=re.split(r'[;.!?\n]+',statement)
+    return any(re.search(pattern,clause) for clause in clauses for pattern in (
         r'\b(?:no|not|without|absent|missing|never)\b.{0,100}\b'+escaped+r'\b',
         r'\b'+escaped+r'\b.{0,100}\b(?:not|absent|missing|unavailable)\b',
         r"\b(?:does\s+not|doesn't|did\s+not|cannot|can't)\b.{0,120}\b"+

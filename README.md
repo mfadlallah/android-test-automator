@@ -52,6 +52,11 @@ Unmarked partial strings, ambiguous visible matches and conflicting full titles
 do not pass. Evidence records `match_type: truncated_prefix` and both strings;
 it never reports a prefix as an exact full-title match. Existing destination
 confirmation and source-collection exclusion still apply.
+The shared assertion-polarity guard scopes negation to an evidence clause:
+`title matched; source collection absent` does not negate the title match.
+Actual expected-value absence still rejects a positive assertion. Expected
+labels are protected before clause parsing so punctuation or a word such as
+`No` inside a product name does not itself change assertion polarity.
 
 The updated swimlane case targets the third item from the **observed collection
 start**, even when only two cards fit on screen. Duplicate identities, lost
