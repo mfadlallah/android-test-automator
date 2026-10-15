@@ -204,9 +204,10 @@ class ScopedLabelAssertionTests(unittest.TestCase):
              'bounds':[0,850,1080,2200],'scrollable':True,
              'enabled':True,'class_name':'androidx.recyclerview.widget.RecyclerView'},
             {'node':1,'parent':0,'text':'','description':'',
-             'resource_id':'sample:id/item','bounds':[0,850,1080,1350],
+             'resource_id':'sample:id/item','bounds':[0,850,1080,1350], 'clickable':True,
              'scrollable':False,'enabled':True,
              'class_name':'android.view.ViewGroup'},
+            {'node':3,'parent':1,'text':'Product One','resource_id':'sample:id/item_name','bounds':[40,880,400,930]},
             {'node':2,'parent':1,'text':'Ad','description':'',
              'resource_id':'sample:id/badge','bounds':[850,940,900,980],
              'scrollable':False,'enabled':True,
@@ -249,7 +250,8 @@ class ScopedLabelAssertionTests(unittest.TestCase):
             'target':'first item','value':'Ad',
         }
         result=assess_plan_assertion(
-            'model',step,{'nodes':[],'ocr':[],'png':b''},vision=True)
+            'model',step,{'nodes':[],'ocr':[],'png':b'',
+                'ocr_item_scope':{'target':'first item','boundary_confirmed':True}},vision=True)
         self.assertEqual('passed',result['status'])
         request.assert_called_once()
 

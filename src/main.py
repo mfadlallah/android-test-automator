@@ -1642,6 +1642,12 @@ def assess_plan_assertion(
             obs,step,crop_bounds,crop_ocr)
 
     scope=obs.get('ocr_item_scope',{})
+    if ('first' in step.get('target', '').lower()
+            and step.get('capability') in {'assert_contains', 'assert_not_contains'}
+            and scope.get('target') != step.get('target')):
+        error = 'First item identity is not grounded; label assertion cannot be evaluated.'
+        save_crop_metadata(0, error=error, errors=[error])
+        raise Blocked(error)
     if (step.get('capability') in {'assert_contains','assert_not_contains'}
             and scope.get('target')==step.get('target')
             and not scope.get('boundary_confirmed',False)):
