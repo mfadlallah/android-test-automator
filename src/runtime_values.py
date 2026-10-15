@@ -78,7 +78,8 @@ def captured_destination_result(step, obs, capture, destination_confirmed=False)
             if matches:
                 return {'status':'passed','reason':step['target']+' contains captured title '+repr(capture['text'])+'.',
                         'evidence':'Confirmed destination '+step['target']+'; source collection absent; exact '+source+' text '+repr(capture['text'])+' at '+str(matches[0]['bounds']),
-                        'match_type':'exact','source':source}
+                        'match_type':'exact','source':source,'bounds':matches[0]['bounds'],
+                        'observed_text':matches[0]['text']}
         for source in ('hierarchy','ocr'):
             matches=[n for s,n,mode in candidates if s==source and mode=='truncated_prefix']
             if not matches:
@@ -93,7 +94,8 @@ def captured_destination_result(step, obs, capture, destination_confirmed=False)
             actual=matches[0]['text']
             return {'status':'passed','reason':step['target']+': truncated title prefix matched.',
                     'evidence':step['target']+': visible '+repr(actual)+' is an explicit ellipsis prefix of captured title '+repr(capture['text'])+'; confirmed destination; source collection absent; '+source+' bounds '+str(matches[0]['bounds']),
-                    'match_type':'truncated_prefix','source':source}
+                    'match_type':'truncated_prefix','source':source,'bounds':matches[0]['bounds'],
+                    'observed_text':actual}
         return {'status':'blocked','reason':'Captured title was not found in destination hierarchy/OCR evidence.',
                 'evidence':'Destination confirmed, but missing text detection alone is not a product failure.'}
     queries={q.split(':id/')[-1].casefold() for q in (step['target'],*step.get('hints',()))}
@@ -111,8 +113,10 @@ def captured_destination_result(step, obs, capture, destination_confirmed=False)
     if mode=='truncated_prefix':
         return {'status':'passed','reason':'Destination truncated title prefix matched.',
                 'evidence':step['target']+': visible '+repr(actual)+' is an explicit ellipsis prefix of captured title '+repr(capture['text'])+'; destination node '+str(fields[0]['node']),
-                'match_type':mode,'source':'hierarchy'}
+                'match_type':mode,'source':'hierarchy','bounds':fields[0]['bounds'],'observed_text':actual}
     equal=mode=='exact'
     return {'status':'passed' if equal else 'failed',
             'reason':'Destination title '+('matches' if equal else 'does not match')+' captured title.',
-            'evidence':step['target']+': '+repr(actual)+' compared exactly with '+repr(capture['text'])+'; destination node '+str(fields[0]['node'])}
+            'evidence':step['target']+': '+repr(actual)+' compared exactly with '+repr(capture['text'])+'; destination node '+str(fields[0]['node']),
+            'bounds':fields[0]['bounds'],'source':'hierarchy','observed_text':actual,
+            'match_type':'exact' if equal else 'mismatch'}

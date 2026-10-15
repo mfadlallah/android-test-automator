@@ -48,6 +48,13 @@ visible text through hierarchy, then OCR. Missing screen proof or text blocks;
 a whole-screen text hit alone cannot establish navigation. Screen identity may
 still depend on the existing visual assessor. `*-captured-comparison.json`
 records the comparison and its navigation confirmation flag.
+Grounded captured-text comparisons, text captures and sequential taps also save
+zoomed `*-crop.png` evidence, a `*-with-context.png` screenshot with red target
+bounds, and JSON recording source/bounds/result. `step-results.json` links these
+artifacts. Comparison crops use the actual matched hierarchy/OCR region; tap
+images are captured before execution and do not alone prove action success.
+The reusable `src/grounded_evidence.py` helper never guesses missing bounds;
+image/grounding failures are recorded as `crop_error` in the evidence JSON.
 
 Captured-title assertions prefer full normalized title matches (hierarchy,
 then OCR). An explicit trailing `…` or `...` may match a prefix of the captured

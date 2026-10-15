@@ -3,6 +3,7 @@ from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
                           swipe_points, scroll_changed, descendants, capture_item_text)
 from .runtime_values import resolve_value, captured_destination_result
+from .grounded_evidence import save_grounded_evidence
 from .item_tracking import ItemTracker, resolve_tracked
 import argparse
 import base64
@@ -3665,6 +3666,16 @@ def structured_step_results(plan,history,folder=None):
                 path=Path(folder)/(prefix+suffix)
                 if path.exists():
                     item[key]=path.name
+        if folder:
+            observation=int(record.get('observation',0))
+            for stem in (f'{observation:02d}-captured-comparison',f'{observation:02d}-tap-grounded',f'{observation:02d}-capture-grounded'):
+                path=Path(folder)/(stem+'.json')
+                if path.exists():
+                    metadata=json.loads(path.read_text(encoding='utf-8'))
+                    item['evidence_record']=path.name
+                    if metadata.get('crop_image'):
+                        item['crop_artifact']=metadata['crop_image']
+                        item['context_artifact']=metadata['context_image']
         completed[step_id]=item
     return [completed[str(step['id'])] for step in plan.get('steps',[])
             if str(step.get('id')) in completed]
@@ -3937,6 +3948,8 @@ def run_sequential_plan(
             except CollectionError as exc:
                 return finish('BLOCKED',str(exc))
             captured[step['value']]={'text':text,'scope':scope,'observation':observation_index}
+            save_grounded_evidence(folder,f'{observation_index:02d}-capture-grounded',obs,scope['bounds'],
+                {'step':step,'captured_value':text,'scope':scope,'source':'hierarchy'})
             (folder/'captured-values.json').write_text(json.dumps(captured,ensure_ascii=False,indent=2),encoding='utf-8')
             decision={'action':'step_pass','node':None,'direction':'none',
                       'reason':'Captured '+step['value']+': '+text,
@@ -4041,9 +4054,9 @@ def run_sequential_plan(
                     and navigation_observation is not None and r.get('observation',-1)>navigation_observation
                     for r in history)
                 grounded_state=captured_destination_result(step,obs,captured[captured_reference],destination_confirmed)
-                (folder/f'{observation_index:02d}-captured-comparison.json').write_text(
-                    json.dumps({'step':step,'capture':captured[captured_reference],
-                                'destination_confirmed':destination_confirmed,'result':grounded_state},ensure_ascii=False,indent=2),encoding='utf-8')
+                save_grounded_evidence(folder,f'{observation_index:02d}-captured-comparison',obs,
+                    grounded_state.get('bounds'),{'step':step,'capture':captured[captured_reference],
+                    'destination_confirmed':destination_confirmed,'result':grounded_state})
             # An explicitly named collection cannot pass on model prose alone.
             collection_target=(capability=='assert_visible' and
                 (re.search(r'(?i)recyclerview|vertical.*list',step['target'])
@@ -4132,6 +4145,18 @@ def run_sequential_plan(
             device.execute(decision,obs); previous=obs
             continue
         if action in {'tap','scroll','screen_scroll','back'}:
+            if action=='tap':
+                tap_node=next((n for n in obs.get('nodes',[]) if n['node']==decision.get('node')),None)
+                bounds=tap_node.get('bounds') if tap_node else None
+                if bounds is None and decision.get('vision_point'):
+                    x,y=decision['vision_point']
+                    hits=[n for n in obs.get('ocr',[]) if len(n.get('bounds',[]))==4
+                          and n['bounds'][0]<=x<=n['bounds'][2] and n['bounds'][1]<=y<=n['bounds'][3]]
+                    if len(hits)==1:
+                        bounds=hits[0]['bounds']
+                save_grounded_evidence(folder,f'{observation_index:02d}-tap-grounded',obs,bounds,
+                    {'step':step,'decision':decision,'source':usage.get('source'),
+                     'capture_phase':'before_action','action_outcome_verified':False})
             device.execute(decision,obs)
             # Capture tap evidence after tap actions
             if action == 'tap' and 'vision_point' in decision:
