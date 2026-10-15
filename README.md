@@ -43,6 +43,16 @@ a whole-screen text hit alone cannot establish navigation. Screen identity may
 still depend on the existing visual assessor. `*-captured-comparison.json`
 records the comparison and its navigation confirmation flag.
 
+Captured-title assertions prefer full normalized title matches (hierarchy,
+then OCR). An explicit trailing `…` or `...` may match a prefix of the captured
+title after case/whitespace normalization. Prefix evidence requires at least
+12 alphanumeric characters, three words and 60% of the full normalized title;
+these are conservative heuristics, not a guarantee of unique vendor identity.
+Unmarked partial strings, ambiguous visible matches and conflicting full titles
+do not pass. Evidence records `match_type: truncated_prefix` and both strings;
+it never reports a prefix as an exact full-title match. Existing destination
+confirmation and source-collection exclusion still apply.
+
 The updated swimlane case targets the third item from the **observed collection
 start**, even when only two cards fit on screen. Duplicate identities, lost
 overlap, changed order, clipping or exhausted budgets block. The same helper

@@ -117,3 +117,45 @@ class ScreenCapturedValueTests(unittest.TestCase):
         self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
         self.obs['nodes']=[]
         self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
+
+class TruncatedTitleTests(unittest.TestCase):
+    def setUp(self):
+        self.capture={'text':'Medan al sham mashwiat','scope':{'collection_resource_id':'demo:id/cards'}}
+        self.step={'capability':'assert_contains','target':'Menu screen','value':self.capture['text'],'hints':[]}
+        self.obs={'nodes':[node(1,None,[0,100,900,200],text='Medan al sham ma...',resource_id='')]}
+
+    def test_explicit_ellipsis_prefix_records_weaker_evidence_type(self):
+        for ellipsis in ('...', '\u2026'):
+            self.obs['nodes'][0]['text']='MEDAN  al sham ma'+ellipsis
+            result=captured_destination_result(self.step,self.obs,self.capture,True)
+            self.assertEqual(result['status'],'passed')
+            self.assertEqual(result['match_type'],'truncated_prefix')
+            self.assertIn(self.capture['text'],result['evidence'])
+            self.assertIn('truncated',result['reason'])
+
+    def test_exact_hierarchy_and_ocr_take_priority(self):
+        self.obs['ocr']=[{'text':self.capture['text'],'bounds':[0,100,900,200],'confidence':.99}]
+        result=captured_destination_result(self.step,self.obs,self.capture,True)
+        self.assertEqual((result['match_type'],result['source']),('exact','ocr'))
+        self.obs['nodes'][0]['text']=self.capture['text']
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['source'],'hierarchy')
+
+    def test_missing_ellipsis_wrong_suffix_short_and_ambiguous_block(self):
+        for text in ('Medan al sham ma','Medan al sham za...', 'Medan al...', 'Medan...'):
+            self.obs['nodes'][0]['text']=text
+            self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked',text)
+        self.obs['nodes'][0]['text']='Medan al sham ma...'
+        self.obs['nodes'].append(node(2,None,[0,300,900,400],text='Medan al sham macaroni'))
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
+
+    def test_source_collection_and_unconfirmed_screen_still_block(self):
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture)['status'],'blocked')
+        self.obs['nodes'].append(node(9,None,[0,300,900,900],resource_id='demo:id/cards'))
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture,True)['status'],'blocked')
+
+    def test_id_scoped_title_supports_same_ellipsis_rule(self):
+        self.step['target']='title'
+        self.obs['nodes'][0]['resource_id']='demo:id/title'
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture)['match_type'],'truncated_prefix')
+        self.obs['nodes'][0]['text']='Medan...'
+        self.assertEqual(captured_destination_result(self.step,self.obs,self.capture)['status'],'blocked')
