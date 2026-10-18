@@ -1,4 +1,5 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
+from .change_evidence import change_reference, layout_change_requested
 from .control_grounding import named_control
 from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
@@ -1510,6 +1511,10 @@ def assess_plan_assertion(
     before_bounds=assertion_crop_bounds(before,step) if comparative and before else None
     if comparative and before:
         local_change,comparison=collection_change(before,obs,before_bounds,crop_bounds)
+        layout_comparison=layout_change_requested(step)
+        if layout_comparison:
+            local_change=None  # Different names alone cannot prove a different layout.
+            comparison['comparison_kind']='layout'
         if artifact_folder:
             prefix=Path(artifact_folder)/f"{obs.get('observation',0):02d}-change-step-{re.sub(r'[^A-Za-z0-9_-]','-',str(step.get('id','change')))}"
             metadata={'target':step.get('target'), 'before_bounds':before_bounds,
@@ -1536,7 +1541,17 @@ def assess_plan_assertion(
                 pair=Image.new('RGB',(old.width+current.width,max(old.height,current.height)), 'white')
                 pair.paste(old,(0,0)); pair.paste(current,(old.width,0))
                 output=io.BytesIO();pair.save(output,format='PNG');current_image=output.getvalue()
-                messages.append({'role':'user','content':'Comparison image: LEFT is BEFORE, RIGHT is CURRENT. Both show the scoped target. Compare item identities/order; ignore clocks, banners and transient loading. Unchanged content is not a pass.'})
+                instructions=(
+                    'Compare repeated item layout: image placement and size, text arrangement, '
+                    'card/row structure, spacing and item dimensions. State the concrete '
+                    'BEFORE versus CURRENT structural difference. Different names/order or '
+                    'a selected toggle alone do not prove item layout changed.'
+                    if layout_comparison else
+                    'Compare item identities/order. Describe the observed content difference.')
+                messages.append({'role':'user','content':
+                    'Comparison image: LEFT is BEFORE, RIGHT is CURRENT. Both show the scoped target. '
+                    +instructions+' Ignore clocks, banners and transient loading. Visibility alone '
+                    'or unchanged content is not a pass.'})
                 if artifact_folder:
                     pair.save(str(prefix)+'-comparison.png')
             except (ImportError,OSError,ValueError):
@@ -4139,8 +4154,7 @@ def run_sequential_plan(
             elif not grounded_state and not current_home_screen(obs):
                 try:
                     result=assertion_assessor(step,obs,
-                        (change_baseline.before or last_action_obs)
-                        if capability in {'wait_changed','assert_changed'} else last_action_obs)
+                        change_reference(capability,change_baseline.before,last_action_obs))
                 except Blocked as exc:
                     result={
                         'status':'blocked','reason':str(exc),

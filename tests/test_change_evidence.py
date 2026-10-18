@@ -47,3 +47,18 @@ class ChangeEvidenceTests(unittest.TestCase):
         obs['nodes'][0]['scrollable']=True
         obs['nodes'].append({'resource_id':'app:id/dialog'})
         self.assertIsNone(collection_visible(step,obs,bounds))
+
+
+class ChangeReferenceTests(unittest.TestCase):
+    def test_layout_action_does_not_reuse_stale_modal_baseline(self):
+        from src.change_evidence import change_reference
+        old={'screen':'old row view before interruption'}
+        immediate={'screen':'card view before tapping row'}
+        self.assertIs(change_reference('assert_changed',old,immediate),immediate)
+        self.assertIs(change_reference('wait_changed',old,immediate),old)
+        self.assertIsNone(change_reference('assert_changed',old,None))
+
+    def test_layout_intent_is_not_a_content_refresh(self):
+        from src.change_evidence import layout_change_requested
+        self.assertTrue(layout_change_requested({'capability':'assert_changed','success':'Verify Inventory list changed from compact view to detailed view'}))
+        self.assertFalse(layout_change_requested({'capability':'wait_changed','success':'Wait until products refresh'}))

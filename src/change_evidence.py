@@ -67,3 +67,19 @@ def collection_visible(step, obs, bounds):
         return None
     return {'status':'passed', 'reason':step['target']+' is visible with grounded item content.',
             'evidence':'A visible scrollable container contains named item content: '+repr(names)}
+
+
+def change_reference(capability, modal_before, last_action):
+    """Action changes compare against that action, not an older modal workflow."""
+    if capability == 'assert_changed':
+        return last_action
+    if capability == 'wait_changed':
+        return modal_before or last_action
+    return last_action
+
+
+def layout_change_requested(step):
+    import re
+    text=step.get('success','')
+    return step.get('capability')=='assert_changed' and bool(
+        re.search(r'\blayout\b|\bfrom\b.+\b(?:view|mode)\b.+\bto\b.+\b(?:view|mode)\b',text,re.I))
