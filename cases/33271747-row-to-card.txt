@@ -13,12 +13,14 @@ Automation setup:
 Steps:
 1. Tap the Restaurants label on Home (or المطاعم in Arabic).
 2. Recover safely from any optional foreground sheet.
-3. Set up row view (right toggle option) as the initial state and verify it is selected.
-4. Tap card view (left toggle option) to change to card view.
-5. Verify that restaurant items change from row view to card view.
-6. Scroll down within the vertical restaurant list.
+3. Tap Row Checkbox.
+4. Verify Row Checkbox is selected.
+5. Tap Card Checkbox is selected.
+6. Verify Card Checkbox is selected.
+7. Verify that within Vendors RecyclerView change from row view to card view.
+8. Scroll down within Vendors RecyclerView.
 
 Expected result:
-- Card view remains selected.
-- Restaurant items are displayed in card view.
+- Card Checkbox remains selected.
+- Vendors RecyclerView items are displayed in card view.
 - The list scrolls and reveals moved or additional restaurant content.
