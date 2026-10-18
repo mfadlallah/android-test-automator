@@ -257,14 +257,14 @@ class GenericAdapter(DomainAdapter):
             observation, (sx1, sy1, sx2, sy2)
         )
 
+        observation['ocr_item_scope'] = {
+            'target': target, 'boundary_confirmed': bool(first_item),
+            'source': 'hierarchy_content_identity',
+            'container_bounds': list(scrollable.to_tuple()) if hasattr(scrollable, 'to_tuple') else [sx1, sy1, sx2, sy2],
+            'item_bounds': list(first_item) if first_item else None,
+        }
         if not first_item:
-            # Fallback: estimate first item position based on scrollable height
-            # Common pattern: first item is at top of scrollable, ~80-120px tall
-            item_height = min(120, int((sy2 - sy1) * 0.15))  # ~15% of scrollable or max 120px
-            first_item = (sx1, sy1, sx2, sy1 + item_height)
-            debug_print(f'DEBUG adapter.get_assertion_crop: Using estimated first item for "{target}": {first_item}', flush=True)
-        else:
-            debug_print(f'DEBUG adapter.get_assertion_crop: Found first item for "{target}": {first_item}', flush=True)
+            return None
 
         fx1, fy1, fx2, fy2 = first_item
 
@@ -703,61 +703,47 @@ class GenericAdapter(DomainAdapter):
         observation: Dict[str, Any],
         container_bounds: Tuple[int, int, int, int]
     ) -> Optional[Tuple[int, int, int, int]]:
-        """Find first visible item in a container using hierarchy parent relationships."""
-        cx1, cy1, cx2, cy2 = container_bounds
+        """Resolve content rows, excluding search/header and nested carousel rows.
 
+        A content root needs its own textual name/title identity. Descendants
+        across nested scrollables belong to another collection and cannot
+        establish the identity of this row. Node IDs need not equal list offsets.
+        """
         nodes = observation.get('nodes', [])
-        if not nodes:
+        by_id = {n.get('node'): n for n in nodes}
+        containers = [n for n in nodes
+                      if tuple(n.get('bounds', ())) == tuple(container_bounds)
+                      and n.get('scrollable')]
+        if len(containers) != 1:
             return None
-
-        # Find the container node itself
-        container_node_idx = None
-        for idx, node in enumerate(nodes):
-            nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
-            if nx1 == cx1 and ny1 == cy1 and nx2 == cx2 and ny2 == cy2:
-                container_node_idx = idx
-                break
-
-        # If we found the container, look for its direct children
+        container = containers[0]
         candidates = []
-        if container_node_idx is not None:
-            # Find all direct children of the container
-            for idx, node in enumerate(nodes):
-                if node.get('parent') == container_node_idx:
-                    nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
-                    width = nx2 - nx1
-                    height = ny2 - ny1
-
-                    # Items should be substantial and visible
-                    if width > 50 and height > 50 and ny2 > cy1:
-                        candidates.append((nx1, ny1, nx2, ny2))
-
-        # If direct children search didn't work, fall back to bounds-based search.
-        # Exclude the container itself and other near-full-container wrappers;
-        # otherwise the assertion crop becomes almost the entire screen.
-        if not candidates:
-            for node in nodes:
-                nx1, ny1, nx2, ny2 = node.get('bounds', [0, 0, 0, 0])
-                width = nx2 - nx1
-                height = ny2 - ny1
-                container_width=cx2-cx1
-                container_height=cy2-cy1
-                same_as_container=(nx1,ny1,nx2,ny2)==(
-                    cx1,cy1,cx2,cy2)
-
-                # Item must be substantial and within container
-                if (not same_as_container and
-                    width >= container_width * .55 and
-                    50 < height < container_height * .75 and
-                    nx1 >= cx1 and nx2 <= cx2 and
-                    ny2 > cy1 and ny1 < cy2):
-                    candidates.append((nx1, ny1, nx2, ny2))
-
+        for root in nodes:
+            if root.get('parent') != container.get('node'):
+                continue
+            bounds = root.get('bounds', [])
+            if len(bounds) != 4 or bounds[2]-bounds[0] <= 50 or bounds[3]-bounds[1] <= 50:
+                continue
+            identities = []
+            for field in nodes:
+                suffix = field.get('resource_id', '').split('/')[-1].lower()
+                if not re.search(r'(?:^|_)(?:name|title)$', suffix) or not field.get('text', '').strip():
+                    continue
+                cursor = field
+                seen = set()
+                while cursor and cursor.get('node') not in seen:
+                    if cursor.get('node') == root.get('node'):
+                        identities.append(field)
+                        break
+                    seen.add(cursor.get('node'))
+                    if cursor.get('scrollable'):
+                        break
+                    cursor = by_id.get(cursor.get('parent'))
+            if identities and root.get('clickable') and root.get('enabled', True):
+                candidates.append(tuple(bounds))
         if not candidates:
             return None
-
-        # Return topmost item (first visible)
-        return min(candidates, key=lambda item: (max(item[1], cy1), item[0]))
+        return min(candidates, key=lambda b: (max(b[1], container_bounds[1]), b[0]))
 
     def _expand_label_bounds(
         self,

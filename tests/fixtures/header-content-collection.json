@@ -1,0 +1,2132 @@
+[
+  {
+    "node": 0,
+    "parent": null,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 1,
+    "parent": 0,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 2,
+    "parent": 1,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 3,
+    "parent": 2,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/action_bar_root",
+    "text": ""
+  },
+  {
+    "node": 4,
+    "parent": 3,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/content",
+    "text": ""
+  },
+  {
+    "node": 5,
+    "parent": 4,
+    "bounds": [
+      0,
+      0,
+      1080,
+      2340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/swipeLayout",
+    "text": ""
+  },
+  {
+    "node": 6,
+    "parent": 5,
+    "bounds": [
+      0,
+      105,
+      1080,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 7,
+    "parent": 6,
+    "bounds": [
+      0,
+      105,
+      1080,
+      263
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/new_bar_top",
+    "text": ""
+  },
+  {
+    "node": 8,
+    "parent": 7,
+    "bounds": [
+      0,
+      134,
+      756,
+      240
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/change_location_header_v2",
+    "text": ""
+  },
+  {
+    "node": 9,
+    "parent": 8,
+    "bounds": [
+      45,
+      137,
+      146,
+      238
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/icon_container",
+    "text": ""
+  },
+  {
+    "node": 10,
+    "parent": 9,
+    "bounds": [
+      45,
+      137,
+      146,
+      238
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/hsBackButton",
+    "text": ""
+  },
+  {
+    "node": 11,
+    "parent": 10,
+    "bounds": [
+      45,
+      137,
+      146,
+      238
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/iconBackground",
+    "text": ""
+  },
+  {
+    "node": 12,
+    "parent": 10,
+    "bounds": [
+      73,
+      165,
+      118,
+      210
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/icon",
+    "text": ""
+  },
+  {
+    "node": 13,
+    "parent": 8,
+    "bounds": [
+      163,
+      134,
+      756,
+      240
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/change_location_view",
+    "text": ""
+  },
+  {
+    "node": 14,
+    "parent": 8,
+    "bounds": [
+      163,
+      134,
+      268,
+      185
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/address_title",
+    "text": ""
+  },
+  {
+    "node": 15,
+    "parent": 8,
+    "bounds": [
+      163,
+      185,
+      705,
+      240
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/address_description",
+    "text": ""
+  },
+  {
+    "node": 16,
+    "parent": 8,
+    "bounds": [
+      711,
+      190,
+      756,
+      235
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/arrow_down_icon",
+    "text": ""
+  },
+  {
+    "node": 17,
+    "parent": 7,
+    "bounds": [
+      810,
+      137,
+      911,
+      238
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vd_basket_entry_point",
+    "text": ""
+  },
+  {
+    "node": 18,
+    "parent": 17,
+    "bounds": [
+      810,
+      137,
+      911,
+      238
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/basket_icon",
+    "text": ""
+  },
+  {
+    "node": 19,
+    "parent": 18,
+    "bounds": [
+      810,
+      137,
+      911,
+      238
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/iconBackground",
+    "text": ""
+  },
+  {
+    "node": 20,
+    "parent": 18,
+    "bounds": [
+      838,
+      165,
+      883,
+      210
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/icon",
+    "text": ""
+  },
+  {
+    "node": 21,
+    "parent": 7,
+    "bounds": [
+      934,
+      137,
+      1035,
+      238
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/favourite_img_view",
+    "text": ""
+  },
+  {
+    "node": 22,
+    "parent": 21,
+    "bounds": [
+      934,
+      137,
+      1035,
+      238
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/iconBackground",
+    "text": ""
+  },
+  {
+    "node": 23,
+    "parent": 21,
+    "bounds": [
+      1012,
+      137,
+      1035,
+      160
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/badgeContainer",
+    "text": ""
+  },
+  {
+    "node": 24,
+    "parent": 23,
+    "bounds": [
+      1012,
+      137,
+      1035,
+      160
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/dotBadge",
+    "text": ""
+  },
+  {
+    "node": 25,
+    "parent": 21,
+    "bounds": [
+      962,
+      165,
+      1007,
+      210
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/icon",
+    "text": ""
+  },
+  {
+    "node": 26,
+    "parent": 6,
+    "bounds": [
+      0,
+      263,
+      1080,
+      2205
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendorsRecycler",
+    "text": ""
+  },
+  {
+    "node": 27,
+    "parent": 26,
+    "bounds": [
+      0,
+      263,
+      1080,
+      372
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 28,
+    "parent": 27,
+    "bounds": [
+      45,
+      263,
+      1035,
+      372
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/new_search_card_view",
+    "text": ""
+  },
+  {
+    "node": 29,
+    "parent": 28,
+    "bounds": [
+      45,
+      263,
+      1035,
+      372
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 30,
+    "parent": 29,
+    "bounds": [
+      79,
+      295,
+      124,
+      340
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/ic_search",
+    "text": ""
+  },
+  {
+    "node": 31,
+    "parent": 29,
+    "bounds": [
+      147,
+      263,
+      978,
+      372
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/et_search",
+    "text": ""
+  },
+  {
+    "node": 32,
+    "parent": 26,
+    "bounds": [
+      0,
+      372,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 33,
+    "parent": 32,
+    "bounds": [
+      0,
+      372,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 34,
+    "parent": 33,
+    "bounds": [
+      0,
+      395,
+      1080,
+      688
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/carouselInclude",
+    "text": ""
+  },
+  {
+    "node": 35,
+    "parent": 34,
+    "bounds": [
+      0,
+      395,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 36,
+    "parent": 35,
+    "bounds": [
+      45,
+      395,
+      360,
+      687
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/joker_tile",
+    "text": ""
+  },
+  {
+    "node": 37,
+    "parent": 36,
+    "bounds": [
+      45,
+      395,
+      337,
+      687
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/joker_vl_tile",
+    "text": ""
+  },
+  {
+    "node": 38,
+    "parent": 37,
+    "bounds": [
+      45,
+      395,
+      337,
+      687
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/imageView",
+    "text": ""
+  },
+  {
+    "node": 39,
+    "parent": 37,
+    "bounds": [
+      115,
+      602,
+      268,
+      659
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/timer",
+    "text": ""
+  },
+  {
+    "node": 40,
+    "parent": 39,
+    "bounds": [
+      137,
+      607,
+      246,
+      654
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 41,
+    "parent": 40,
+    "bounds": [
+      137,
+      617,
+      165,
+      645
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/counterIcon",
+    "text": ""
+  },
+  {
+    "node": 42,
+    "parent": 40,
+    "bounds": [
+      165,
+      607,
+      246,
+      654
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/counter",
+    "text": ""
+  },
+  {
+    "node": 43,
+    "parent": 35,
+    "bounds": [
+      360,
+      395,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/campaignRecyclerView",
+    "text": ""
+  },
+  {
+    "node": 44,
+    "parent": 43,
+    "bounds": [
+      360,
+      395,
+      653,
+      688
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 45,
+    "parent": 44,
+    "bounds": [
+      360,
+      395,
+      653,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 46,
+    "parent": 45,
+    "bounds": [
+      363,
+      398,
+      650,
+      685
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/carousel_image",
+    "text": ""
+  },
+  {
+    "node": 47,
+    "parent": 43,
+    "bounds": [
+      675,
+      395,
+      968,
+      688
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 48,
+    "parent": 47,
+    "bounds": [
+      675,
+      395,
+      968,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 49,
+    "parent": 48,
+    "bounds": [
+      678,
+      398,
+      965,
+      685
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/carousel_image",
+    "text": ""
+  },
+  {
+    "node": 50,
+    "parent": 43,
+    "bounds": [
+      990,
+      395,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 51,
+    "parent": 50,
+    "bounds": [
+      990,
+      395,
+      1080,
+      688
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 52,
+    "parent": 51,
+    "bounds": [
+      993,
+      398,
+      1080,
+      685
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/carousel_image",
+    "text": ""
+  },
+  {
+    "node": 53,
+    "parent": 26,
+    "bounds": [
+      0,
+      688,
+      1080,
+      795
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 54,
+    "parent": 53,
+    "bounds": [
+      45,
+      711,
+      1035,
+      795
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/toggle_view",
+    "text": ""
+  },
+  {
+    "node": 55,
+    "parent": 54,
+    "bounds": [
+      45,
+      711,
+      1035,
+      795
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 56,
+    "parent": 55,
+    "bounds": [
+      45,
+      711,
+      340,
+      795
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendors_title",
+    "text": ""
+  },
+  {
+    "node": 57,
+    "parent": 55,
+    "bounds": [
+      849,
+      716,
+      1035,
+      790
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/toggle",
+    "text": ""
+  },
+  {
+    "node": 58,
+    "parent": 57,
+    "bounds": [
+      852,
+      719,
+      942,
+      787
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/card_button",
+    "text": ""
+  },
+  {
+    "node": 59,
+    "parent": 57,
+    "bounds": [
+      942,
+      719,
+      1032,
+      787
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/row_button",
+    "text": ""
+  },
+  {
+    "node": 60,
+    "parent": 26,
+    "bounds": [
+      0,
+      795,
+      1080,
+      941
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 61,
+    "parent": 60,
+    "bounds": [
+      0,
+      795,
+      1080,
+      941
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 62,
+    "parent": 26,
+    "bounds": [
+      0,
+      941,
+      1080,
+      1822
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 63,
+    "parent": 62,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1788
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 64,
+    "parent": 63,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1419
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/dish_carousel_view",
+    "text": ""
+  },
+  {
+    "node": 65,
+    "parent": 64,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1419
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 66,
+    "parent": 65,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1419
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 67,
+    "parent": 66,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1419
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 68,
+    "parent": 67,
+    "bounds": [
+      45,
+      941,
+      1035,
+      1419
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendor_cover_image",
+    "text": ""
+  },
+  {
+    "node": 69,
+    "parent": 64,
+    "bounds": [
+      78,
+      1353,
+      187,
+      1386
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 70,
+    "parent": 63,
+    "bounds": [
+      933,
+      975,
+      1001,
+      1043
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/fav_image_view_bg",
+    "text": ""
+  },
+  {
+    "node": 71,
+    "parent": 63,
+    "bounds": [
+      945,
+      987,
+      990,
+      1032
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/fav_image_view",
+    "text": ""
+  },
+  {
+    "node": 72,
+    "parent": 63,
+    "bounds": [
+      771,
+      1374,
+      1035,
+      1419
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/logo_bg_view",
+    "text": ""
+  },
+  {
+    "node": 73,
+    "parent": 63,
+    "bounds": [
+      79,
+      1460,
+      811,
+      1534
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendor_name",
+    "text": "Example item"
+  },
+  {
+    "node": 74,
+    "parent": 63,
+    "bounds": [
+      79,
+      1540,
+      280,
+      1608
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/rate_flow",
+    "text": ""
+  },
+  {
+    "node": 75,
+    "parent": 63,
+    "bounds": [
+      187,
+      1540,
+      280,
+      1608
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/rate_count",
+    "text": ""
+  },
+  {
+    "node": 76,
+    "parent": 63,
+    "bounds": [
+      305,
+      1546,
+      822,
+      1601
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendor_genre",
+    "text": ""
+  },
+  {
+    "node": 77,
+    "parent": 63,
+    "bounds": [
+      822,
+      1385,
+      985,
+      1548
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/logo",
+    "text": ""
+  },
+  {
+    "node": 78,
+    "parent": 63,
+    "bounds": [
+      79,
+      1551,
+      124,
+      1596
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/star_image",
+    "text": ""
+  },
+  {
+    "node": 79,
+    "parent": 63,
+    "bounds": [
+      130,
+      1545,
+      181,
+      1602
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/rate_value",
+    "text": ""
+  },
+  {
+    "node": 80,
+    "parent": 63,
+    "bounds": [
+      291,
+      1560,
+      294,
+      1588
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/rate_divider",
+    "text": ""
+  },
+  {
+    "node": 81,
+    "parent": 63,
+    "bounds": [
+      79,
+      1612,
+      142,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/price_range_txt",
+    "text": ""
+  },
+  {
+    "node": 82,
+    "parent": 63,
+    "bounds": [
+      153,
+      1627,
+      156,
+      1655
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/price_divider",
+    "text": ""
+  },
+  {
+    "node": 83,
+    "parent": 63,
+    "bounds": [
+      167,
+      1612,
+      400,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/time_flow",
+    "text": ""
+  },
+  {
+    "node": 84,
+    "parent": 63,
+    "bounds": [
+      167,
+      1624,
+      201,
+      1658
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/time_icon",
+    "text": ""
+  },
+  {
+    "node": 85,
+    "parent": 63,
+    "bounds": [
+      207,
+      1612,
+      318,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/time_value",
+    "text": ""
+  },
+  {
+    "node": 86,
+    "parent": 63,
+    "bounds": [
+      324,
+      1613,
+      400,
+      1668
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/time_unit",
+    "text": ""
+  },
+  {
+    "node": 87,
+    "parent": 63,
+    "bounds": [
+      411,
+      1627,
+      414,
+      1655
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/estimation_divider",
+    "text": ""
+  },
+  {
+    "node": 88,
+    "parent": 63,
+    "bounds": [
+      425,
+      1612,
+      563,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/distance_flow",
+    "text": ""
+  },
+  {
+    "node": 89,
+    "parent": 63,
+    "bounds": [
+      425,
+      1624,
+      459,
+      1658
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/distance_icon",
+    "text": ""
+  },
+  {
+    "node": 90,
+    "parent": 63,
+    "bounds": [
+      465,
+      1612,
+      508,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/distance_value",
+    "text": ""
+  },
+  {
+    "node": 91,
+    "parent": 63,
+    "bounds": [
+      514,
+      1613,
+      563,
+      1668
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/distance_unit",
+    "text": ""
+  },
+  {
+    "node": 92,
+    "parent": 63,
+    "bounds": [
+      574,
+      1627,
+      577,
+      1655
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/distance_divider",
+    "text": ""
+  },
+  {
+    "node": 93,
+    "parent": 63,
+    "bounds": [
+      588,
+      1612,
+      757,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/price_flow",
+    "text": ""
+  },
+  {
+    "node": 94,
+    "parent": 63,
+    "bounds": [
+      588,
+      1624,
+      622,
+      1658
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/delivery_icon",
+    "text": ""
+  },
+  {
+    "node": 95,
+    "parent": 63,
+    "bounds": [
+      625,
+      1612,
+      698,
+      1669
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/blue_textview",
+    "text": ""
+  },
+  {
+    "node": 96,
+    "parent": 63,
+    "bounds": [
+      701,
+      1627,
+      757,
+      1655
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/subscribed_plus_icon",
+    "text": ""
+  },
+  {
+    "node": 97,
+    "parent": 63,
+    "bounds": [
+      942,
+      1616,
+      1001,
+      1666
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendor_status_label",
+    "text": ""
+  },
+  {
+    "node": 98,
+    "parent": 63,
+    "bounds": [
+      79,
+      1686,
+      1001,
+      1765
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/promosFlex",
+    "text": ""
+  },
+  {
+    "node": 99,
+    "parent": 98,
+    "bounds": [
+      79,
+      1686,
+      574,
+      1754
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 100,
+    "parent": 99,
+    "bounds": [
+      79,
+      1686,
+      574,
+      1754
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 101,
+    "parent": 100,
+    "bounds": [
+      85,
+      1698,
+      130,
+      1743
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/promotion_icon_stub",
+    "text": ""
+  },
+  {
+    "node": 102,
+    "parent": 100,
+    "bounds": [
+      141,
+      1692,
+      574,
+      1749
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/promotion_text",
+    "text": ""
+  },
+  {
+    "node": 103,
+    "parent": 98,
+    "bounds": [
+      585,
+      1686,
+      845,
+      1754
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 104,
+    "parent": 103,
+    "bounds": [
+      585,
+      1686,
+      845,
+      1754
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 105,
+    "parent": 104,
+    "bounds": [
+      591,
+      1698,
+      718,
+      1743
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/promotion_icon_stub",
+    "text": ""
+  },
+  {
+    "node": 106,
+    "parent": 104,
+    "bounds": [
+      729,
+      1692,
+      845,
+      1749
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/promotion_text",
+    "text": ""
+  },
+  {
+    "node": 107,
+    "parent": 26,
+    "bounds": [
+      0,
+      1822,
+      1080,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 108,
+    "parent": 107,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 109,
+    "parent": 108,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/dish_carousel_view",
+    "text": ""
+  },
+  {
+    "node": 110,
+    "parent": 109,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 111,
+    "parent": 110,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 112,
+    "parent": 111,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 113,
+    "parent": 112,
+    "bounds": [
+      45,
+      1822,
+      1035,
+      2205
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/vendor_cover_image",
+    "text": ""
+  },
+  {
+    "node": 114,
+    "parent": 108,
+    "bounds": [
+      933,
+      1856,
+      1001,
+      1924
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/fav_image_view_bg",
+    "text": ""
+  },
+  {
+    "node": 115,
+    "parent": 108,
+    "bounds": [
+      945,
+      1868,
+      990,
+      1913
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/fav_image_view",
+    "text": ""
+  },
+  {
+    "node": 116,
+    "parent": 6,
+    "bounds": [
+      0,
+      795,
+      1080,
+      941
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_fragment",
+    "text": ""
+  },
+  {
+    "node": 117,
+    "parent": 116,
+    "bounds": [
+      0,
+      795,
+      1080,
+      941
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/horizontal_sort_filter_view",
+    "text": ""
+  },
+  {
+    "node": 118,
+    "parent": 117,
+    "bounds": [
+      0,
+      795,
+      1080,
+      941
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/parent_layout",
+    "text": ""
+  },
+  {
+    "node": 119,
+    "parent": 118,
+    "bounds": [
+      45,
+      815,
+      300,
+      922
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/white_button_background",
+    "text": ""
+  },
+  {
+    "node": 120,
+    "parent": 118,
+    "bounds": [
+      45,
+      815,
+      300,
+      922
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/click_view",
+    "text": ""
+  },
+  {
+    "node": 121,
+    "parent": 118,
+    "bounds": [
+      45,
+      867,
+      68,
+      870
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/start_space",
+    "text": ""
+  },
+  {
+    "node": 122,
+    "parent": 118,
+    "bounds": [
+      68,
+      846,
+      113,
+      891
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/icon",
+    "text": ""
+  },
+  {
+    "node": 123,
+    "parent": 118,
+    "bounds": [
+      124,
+      841,
+      221,
+      896
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/title_txt",
+    "text": ""
+  },
+  {
+    "node": 124,
+    "parent": 118,
+    "bounds": [
+      232,
+      846,
+      277,
+      891
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/arrow_icon",
+    "text": ""
+  },
+  {
+    "node": 125,
+    "parent": 118,
+    "bounds": [
+      277,
+      867,
+      300,
+      870
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/end_space",
+    "text": ""
+  },
+  {
+    "node": 126,
+    "parent": 118,
+    "bounds": [
+      300,
+      815,
+      1080,
+      922
+    ],
+    "scrollable": true,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_recycler_view",
+    "text": ""
+  },
+  {
+    "node": 127,
+    "parent": 126,
+    "bounds": [
+      311,
+      815,
+      502,
+      922
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 128,
+    "parent": 127,
+    "bounds": [
+      311,
+      815,
+      502,
+      922
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/parent_filter",
+    "text": ""
+  },
+  {
+    "node": 129,
+    "parent": 128,
+    "bounds": [
+      335,
+      841,
+      478,
+      896
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_name",
+    "text": ""
+  },
+  {
+    "node": 130,
+    "parent": 126,
+    "bounds": [
+      513,
+      815,
+      800,
+      922
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 131,
+    "parent": 130,
+    "bounds": [
+      513,
+      815,
+      800,
+      922
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/parent_filter",
+    "text": ""
+  },
+  {
+    "node": 132,
+    "parent": 131,
+    "bounds": [
+      537,
+      850,
+      574,
+      887
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_icon",
+    "text": ""
+  },
+  {
+    "node": 133,
+    "parent": 131,
+    "bounds": [
+      585,
+      841,
+      720,
+      896
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_name",
+    "text": ""
+  },
+  {
+    "node": 134,
+    "parent": 131,
+    "bounds": [
+      731,
+      846,
+      776,
+      891
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/arrow_icon",
+    "text": ""
+  },
+  {
+    "node": 135,
+    "parent": 126,
+    "bounds": [
+      811,
+      815,
+      933,
+      922
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 136,
+    "parent": 135,
+    "bounds": [
+      811,
+      815,
+      933,
+      922
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/parent_filter",
+    "text": ""
+  },
+  {
+    "node": 137,
+    "parent": 136,
+    "bounds": [
+      835,
+      850,
+      909,
+      887
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_icon",
+    "text": ""
+  },
+  {
+    "node": 138,
+    "parent": 126,
+    "bounds": [
+      944,
+      815,
+      1080,
+      922
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/",
+    "text": ""
+  },
+  {
+    "node": 139,
+    "parent": 138,
+    "bounds": [
+      944,
+      815,
+      1080,
+      922
+    ],
+    "scrollable": false,
+    "clickable": true,
+    "enabled": true,
+    "resource_id": "sample:id/parent_filter",
+    "text": ""
+  },
+  {
+    "node": 140,
+    "parent": 139,
+    "bounds": [
+      968,
+      841,
+      1066,
+      896
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/sort_filter_name",
+    "text": ""
+  },
+  {
+    "node": 141,
+    "parent": 118,
+    "bounds": [
+      300,
+      867,
+      323,
+      870
+    ],
+    "scrollable": false,
+    "clickable": false,
+    "enabled": true,
+    "resource_id": "sample:id/splitter_end",
+    "text": ""
+  }
+]

@@ -1,7 +1,10 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
 from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
-                          swipe_points, scroll_changed, descendants)
+                          swipe_points, scroll_changed, descendants, capture_item_text)
+from .runtime_values import resolve_value, captured_destination_result
+from .grounded_evidence import save_grounded_evidence
+from .item_tracking import ItemTracker, resolve_tracked
 import argparse
 import base64
 import hashlib
@@ -581,6 +584,16 @@ class Device:
             if not node['scrollable']: raise Blocked('Target is not a usable scroll container')
             try:
                 points=swipe_points(node['bounds'],decision['direction'])
+                fraction=decision.get('scroll_fraction')
+                if fraction is not None:
+                    if fraction!=.25:
+                        raise CollectionError('Unsupported tracked-scroll fraction')
+                    horizontal=decision['direction'] in {'left','right'}
+                    lo,hi=(x1,x2) if horizontal else (y1,y2)
+                    a=round(lo+(hi-lo)*.65); b=round(lo+(hi-lo)*.40)
+                    if decision['direction'] in {'right','up'}:
+                        a,b=b,a
+                    points=(a,(y1+y2)//2,b,(y1+y2)//2) if horizontal else ((x1+x2)//2,a,(x1+x2)//2,b)
             except CollectionError as exc:
                 raise Blocked(str(exc)) from exc
             self.adb('shell','input','swipe',*(str(p) for p in points),'600')
@@ -728,8 +741,14 @@ def contains_statement_is_negative(value,statement):
     statement=' '.join(str(statement or '').split()).casefold()
     if not value:
         return False
-    escaped=re.escape(value)
-    return any(re.search(pattern,statement) for pattern in (
+    # Preserve punctuation and words such as "No" inside the expected label.
+    # A negation in a separate evidence clause describes a different fact;
+    # e.g. "title matched; source collection absent" is positive title evidence.
+    marker='assertion_expected_value_token'
+    statement=re.sub(re.escape(value),lambda _:marker,statement)
+    escaped=re.escape(marker)
+    clauses=re.split(r'[;.!?\n]+',statement)
+    return any(re.search(pattern,clause) for clause in clauses for pattern in (
         r'\b(?:no|not|without|absent|missing|never)\b.{0,100}\b'+escaped+r'\b',
         r'\b'+escaped+r'\b.{0,100}\b(?:not|absent|missing|unavailable)\b',
         r"\b(?:does\s+not|doesn't|did\s+not|cannot|can't)\b.{0,120}\b"+
@@ -1623,6 +1642,12 @@ def assess_plan_assertion(
             obs,step,crop_bounds,crop_ocr)
 
     scope=obs.get('ocr_item_scope',{})
+    if ('first' in step.get('target', '').lower()
+            and step.get('capability') in {'assert_contains', 'assert_not_contains'}
+            and scope.get('target') != step.get('target')):
+        error = 'First item identity is not grounded; label assertion cannot be evaluated.'
+        save_crop_metadata(0, error=error, errors=[error])
+        raise Blocked(error)
     if (step.get('capability') in {'assert_contains','assert_not_contains'}
             and scope.get('target')==step.get('target')
             and not scope.get('boundary_confirmed',False)):
@@ -3647,6 +3672,16 @@ def structured_step_results(plan,history,folder=None):
                 path=Path(folder)/(prefix+suffix)
                 if path.exists():
                     item[key]=path.name
+        if folder:
+            observation=int(record.get('observation',0))
+            for stem in (f'{observation:02d}-captured-comparison',f'{observation:02d}-tap-grounded',f'{observation:02d}-capture-grounded'):
+                path=Path(folder)/(stem+'.json')
+                if path.exists():
+                    metadata=json.loads(path.read_text(encoding='utf-8'))
+                    item['evidence_record']=path.name
+                    if metadata.get('crop_image'):
+                        item['crop_artifact']=metadata['crop_image']
+                        item['context_artifact']=metadata['context_image']
         completed[step_id]=item
     return [completed[str(step['id'])] for step in plan.get('steps',[])
             if str(step.get('id')) in completed]
@@ -3665,6 +3700,8 @@ def plan_completion_error(plan,history):
     by_id={str(step.get('id')):step for step in plan.get('steps',[])}
     for step_id,item in results.items():
         step=by_id[step_id]
+        if step.get('value','').startswith('$'):
+            step={**step,'value':item['expected_value']}
         if step.get('capability') not in ASSERTION_STEP_CAPABILITIES:
             continue
         error=assertion_evidence_error(step,{
@@ -3761,6 +3798,8 @@ def run_sequential_plan(
     change_baseline=ModalBaseline()
     progress=PlanProgress(plan,lambda message: print(message,flush=True))
     recovery=Recovery(max_actions=3); waits={}
+    captured={}; search_attempts={}
+    trackers={}; tracked_items={}
     steps=plan['steps']
 
     def finish(status,reason,evidence=''):
@@ -3776,6 +3815,8 @@ def run_sequential_plan(
         detail=reason
         if evidence:
             detail+=' | Evidence: '+evidence
+        if status in {'BLOCKED','FAILED'}:
+            print('  ↳ '+status+': '+detail,flush=True)
         if status=='PASSED':
             detail+=(' | Completed '+str(summary['steps_passed'])+'/'+
                      str(summary['steps_total'])+' steps and '+
@@ -3800,6 +3841,12 @@ def run_sequential_plan(
             return finish('PASSED','All structured plan steps passed.',
                           history[-1]['decision'].get('evidence',''))
         step=steps[step_index]
+        captured_reference=(step.get('value','')[1:] if step.get('value','').startswith('$') else None)
+        if step['capability'] in {'assert_contains','assert_not_contains'}:
+            try:
+                step={**step,'value':resolve_value(step['value'],captured)}
+            except ValueError as exc:
+                return finish('BLOCKED',str(exc))
         capability=step['capability']
         progress.show(step_index)
         assessment={'kind':'plan_step','step':step}
@@ -3880,9 +3927,80 @@ def run_sequential_plan(
                         }
                         usage={'source':'sequential_executor','step_id':step['id']}
                         advance=True
+        elif capability=='seek_item':
+            try:
+                tracker=trackers.setdefault(step['id'],ItemTracker(step['target'],int(step['value']),step.get('hints',()),step['direction']))
+                decision=tracker.observe(obs)
+                if decision is None:
+                    tracked_items[step['target'].casefold()]=tracker.selected
+                    decision={'action':'step_pass','node':None,'direction':'none',
+                              'reason':'Tracked item '+step['value']+' is grounded by identity.',
+                              'evidence':json.dumps(tracker.selected,ensure_ascii=False)}
+                    advance=True
+            except (CollectionError,ValueError) as exc:
+                (folder/'item-tracking.json').write_text(json.dumps({k:{'trace':v.trace,'selected':v.selected} for k,v in trackers.items()},ensure_ascii=False,indent=2),encoding='utf-8')
+                return finish('BLOCKED',str(exc))
+            (folder/'item-tracking.json').write_text(json.dumps({k:{'trace':v.trace,'selected':v.selected} for k,v in trackers.items()},ensure_ascii=False,indent=2),encoding='utf-8')
+            usage={'source':'item_tracking','step_id':step['id']}
+        elif capability=='capture_text':
+            try:
+                resolved=None
+                if step['target'].casefold().startswith('tracked item of '):
+                    key=step['target'][len('tracked item of '):].casefold()
+                    if key not in tracked_items:
+                        raise CollectionError('No prior tracked item selection for '+key)
+                    resolved=resolve_tracked(tracked_items[key],obs)
+                text,scope=capture_item_text(step['target'],obs,step.get('hints',()),resolved)
+            except CollectionError as exc:
+                return finish('BLOCKED',str(exc))
+            captured[step['value']]={'text':text,'scope':scope,'observation':observation_index}
+            save_grounded_evidence(folder,f'{observation_index:02d}-capture-grounded',obs,scope['bounds'],
+                {'step':step,'captured_value':text,'scope':scope,'source':'hierarchy'})
+            (folder/'captured-values.json').write_text(json.dumps(captured,ensure_ascii=False,indent=2),encoding='utf-8')
+            decision={'action':'step_pass','node':None,'direction':'none',
+                      'reason':'Captured '+step['value']+': '+text,
+                      'evidence':json.dumps(captured[step['value']],ensure_ascii=False)}
+            usage={'source':'capture_text','step_id':step['id']}; advance=True
+        elif capability=='scroll_until_visible':
+            try:
+                target=resolve_collection(step['target'],obs,step.get('hints',()))
+            except CollectionError:
+                target=None
+            if target is not None:
+                decision={'action':'step_pass','node':None,'direction':'none',
+                          'reason':step['target']+' collection is grounded.',
+                          'evidence':str(target.get('resource_id'))+'; bounds '+str(target['bounds'])}
+                advance=True
+            else:
+                if search_attempts.get(step['id'],0)>=5:
+                    return finish('BLOCKED','Collection search exhausted after five scoped swipes: '+step['target'])
+                try:
+                    parent=resolve_collection(step['value'],obs,(),step['direction'])
+                except CollectionError as exc:
+                    return finish('BLOCKED',str(exc))
+                search_attempts[step['id']]=search_attempts.get(step['id'],0)+1
+                decision={'action':'scroll','node':parent['node'],'direction':step['direction'],
+                          'reason':'Search swipe '+str(search_attempts[step['id']])+'/5 for '+step['target'],
+                          'evidence':'Parent collection '+str(parent.get('resource_id'))}
+            usage={'source':'collection_search','step_id':step['id']}
         elif capability=='tap':
-            decision,usage=semantic_tap_decision(
-                obs,step['target'],step.get('hints',()))
+            if step['target'].casefold().startswith('tracked item of '):
+                key=step['target'][len('tracked item of '):].casefold()
+                try:
+                    if key not in tracked_items:
+                        raise CollectionError('No tracked item selection for '+key)
+                    container,item=resolve_tracked(tracked_items[key],obs)
+                    if not item.get('clickable') or not item.get('enabled',True):
+                        raise CollectionError('Tracked item is not an enabled clickable target.')
+                except CollectionError as exc:
+                    return finish('BLOCKED',str(exc))
+                decision={'action':'tap','node':item['node'],'direction':'none',
+                          'reason':'Tap the identity-tracked item.',
+                          'evidence':json.dumps(tracked_items[key],ensure_ascii=False)}
+                usage={'source':'tracked_item_tap'}
+            else:
+                decision,usage=semantic_tap_decision(
+                    obs,step['target'],step.get('hints',()))
             if step_index==0:
                 usage['source']='navigation_gate'
             usage['step_id']=step['id']; advance=True
@@ -3932,6 +4050,30 @@ def run_sequential_plan(
         elif capability in SEQUENTIAL_CAPABILITIES or capability=='assert_changed':
             grounded_state=(modal_assertion(step,obs,modal_identities)
                             or selected_assertion(step,obs))
+            if captured_reference:
+                navigation_observation=max((r.get('observation',-1) for r in history
+                    if r.get('step_completed') and r.get('decision',{}).get('action')=='tap'
+                    and r.get('observation',-1)>captured[captured_reference].get('observation',-1)),default=None)
+                destination_confirmed=any(
+                    r.get('step_completed') and r.get('plan_step',{}).get('capability')=='assert_visible'
+                    and r.get('plan_step',{}).get('target','').casefold()==step['target'].casefold()
+                    and navigation_observation is not None and r.get('observation',-1)>navigation_observation
+                    for r in history)
+                grounded_state=captured_destination_result(step,obs,captured[captured_reference],destination_confirmed)
+                save_grounded_evidence(folder,f'{observation_index:02d}-captured-comparison',obs,
+                    grounded_state.get('bounds'),{'step':step,'capture':captured[captured_reference],
+                    'destination_confirmed':destination_confirmed,'result':grounded_state})
+            # An explicitly named collection cannot pass on model prose alone.
+            collection_target=(capability=='assert_visible' and
+                (re.search(r'(?i)recyclerview|vertical.*list',step['target'])
+                 or any(s['capability'] in {'scroll','scroll_until_visible'} and s['target']==step['target'] for s in steps)))
+            if collection_target and ordinal(step['target']) is None:
+                try:
+                    container=resolve_collection(step['target'],obs,step.get('hints',()))
+                    grounded_state={'status':'passed','reason':step['target']+' collection is visible.',
+                                    'evidence':str(container.get('resource_id'))+'; bounds '+str(container['bounds'])}
+                except CollectionError as exc:
+                    grounded_state={'status':'blocked','reason':str(exc),'evidence':'No unique visible collection was grounded.'}
             if grounded_state:
                 result=grounded_state
                 visible_evidence=None
@@ -3993,13 +4135,15 @@ def run_sequential_plan(
 
         (folder/f'{observation_index:02d}-assessment.json').write_text(
             json.dumps(assessment,ensure_ascii=False,indent=2),encoding='utf-8')
+        if captured_reference:
+            usage['value_reference']='$'+captured_reference
         record={'observation':observation_index,'plan_step':step,
                 'decision':decision,'usage':usage,
                 'step_completed':bool(advance)}
         (folder/f'{observation_index:02d}-decision.json').write_text(
             json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
         action=decision['action']
-        progress.detail(decision,completed=advance,recovery=not advance)
+        progress.detail(decision,completed=advance,recovery=not advance and usage.get('source') not in {'item_tracking','collection_search'})
         history.append(record)
         if action in {'failed','blocked'}:
             return finish(action.upper(),decision['reason'],decision['evidence'])
@@ -4007,6 +4151,18 @@ def run_sequential_plan(
             device.execute(decision,obs); previous=obs
             continue
         if action in {'tap','scroll','screen_scroll','back'}:
+            if action=='tap':
+                tap_node=next((n for n in obs.get('nodes',[]) if n['node']==decision.get('node')),None)
+                bounds=tap_node.get('bounds') if tap_node else None
+                if bounds is None and decision.get('vision_point'):
+                    x,y=decision['vision_point']
+                    hits=[n for n in obs.get('ocr',[]) if len(n.get('bounds',[]))==4
+                          and n['bounds'][0]<=x<=n['bounds'][2] and n['bounds'][1]<=y<=n['bounds'][3]]
+                    if len(hits)==1:
+                        bounds=hits[0]['bounds']
+                save_grounded_evidence(folder,f'{observation_index:02d}-tap-grounded',obs,bounds,
+                    {'step':step,'decision':decision,'source':usage.get('source'),
+                     'capture_phase':'before_action','action_outcome_verified':False})
             device.execute(decision,obs)
             # Capture tap evidence after tap actions
             if action == 'tap' and 'vision_point' in decision:

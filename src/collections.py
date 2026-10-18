@@ -81,6 +81,16 @@ def resolve_collection(target, obs, hints=(), direction=None):
         containers = [n for n in containers if axis(n, obs) == requested]
     if not containers:
         raise CollectionError('No grounded '+(requested or '')+' collection for '+target)
+    # Preserve complete ID hints before semantic stop-word removal.
+    queries = {str(q).strip().split(':id/')[-1].casefold() for q in (target, *hints)}
+    exact = [n for n in containers if n.get('resource_id', '').split(':id/')[-1].casefold() in queries]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        raise CollectionError('Resource-id identifies multiple visible collections: '+target)
+    explicit_ids=[q for q in (target,*hints) if ':id/' in q or re.fullmatch(r'[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+',q)]
+    if explicit_ids:
+        raise CollectionError('Explicit collection resource-id is not visible: '+', '.join(explicit_ids))
     ignore = set(ORDINALS) | {'item', 'items', 'of', 'in', 'the', 'visible', 'horizontal',
                             'vertical', 'recyclerview', 'recycler', 'view', 'list', 'collection',
                             'scroll', 'left', 'right', 'up', 'down', 'swimlane', 'container'}
@@ -106,6 +116,24 @@ def resolve_collection(target, obs, hints=(), direction=None):
     if len(matches) != 1 or (query and best == 0 and len(containers) > 1):
         raise CollectionError('Collection is ambiguous; provide its visible heading or resource-id hint: '+target)
     return matches[0]
+
+
+def capture_item_text(target, obs, hints=(), resolved=None):
+    """Capture one explicitly hinted field inside a grounded ordinal item."""
+    container, item = resolved if resolved is not None else resolve_item(target, obs, hints)
+    children = [item, *descendants(item, obs.get('nodes', []))]
+    hinted = {h.split(':id/')[-1].casefold() for h in hints}
+    fields = [n for n in children if n.get('text', '').strip()
+              and n.get('resource_id', '').split(':id/')[-1].casefold() in hinted]
+    if not fields:
+        fields = [n for n in children if n.get('text', '').strip()]
+    if len(fields) != 1:
+        raise CollectionError('Capture requires one text field inside the item; provide its resource-id hint.')
+    field = fields[0]
+    return field['text'].strip(), {'container':container['node'], 'item':item['node'],
+                                 'field':field['node'], 'bounds':field['bounds'],
+                                 'collection_resource_id':container.get('resource_id',''),
+                                 'resource_id':field.get('resource_id', '')}
 
 
 def resolve_item(target, obs, hints=()):

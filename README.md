@@ -5,6 +5,86 @@ Python execution, ADB, UIAutomator2 hierarchy, and Apple Vision OCR.
 This is an advisory PoC, not a replacement for release-critical regression.
 See [RFC v0](RFC.md) for architecture, trade-offs, ownership, and rollout.
 
+## Nested collection search and captured titles
+
+Every compiled navigation plan includes an optional recovery checkpoint after
+its first navigation tap, even when the author omits it. Existing checkpoints
+are not duplicated. Independently, the runner checks grounded unexpected
+foreground interruptions before each step, resumes the pending step after
+recovery, and protects planned modals. Dimming alone does not authorize Back.
+
+Collection IDs are matched exactly before semantic token matching. An explicit
+missing ID cannot resolve to another carousel or pass visibility on AI prose.
+The planner rejects omitted explicit taps and literal ordinal-title placeholders.
+Explicit control-option taps may compile to `set_control` only when their value
+and side match the source instruction; they are not missing taps. The model's
+case-specific capability schema excludes `seek_item` unless ordinal navigation
+is requested. Label assertions do not imply list navigation. Regression checks
+compile all five repository cases through the fallback path, including layout
+setup/transitions and sorting steps with explanatory `now`/`to apply` wording.
+
+Three reusable capabilities support the swimlane journey:
+- `scroll_until_visible`: scroll the parent collection named in `value`, in
+  `direction`, until the target collection is grounded; at most five swipes.
+- `capture_text`: capture a text field inside a grounded visible ordinal item
+  into a named variable. Provide collection and field resource-ID hints when
+  the item contains several text fields. `captured-values.json` records its scope.
+- `seek_item`: value is a positive ordinal, target is the collection, direction
+  is forward, and hints identify the collection and its item identity field.
+  It seeks an observed start boundary (two consecutive non-moving observations
+  after reverse swipes), then merges overlapping identity windows with small
+  swipes. At most twelve total swipes. Later Capture/Tap use `tracked item of
+  <collection>` and recheck the same identity on the current hierarchy.
+  `item-tracking.json` records windows, bounds, phase and selection.
+
+Use `assert_contains` with `$variable_name` to compare the captured title exactly
+with one destination resource-ID field outside the source collection. Missing,
+ambiguous or uncaptured evidence blocks; a different title fails.
+Alternatively, use `Verify Details screen is open` followed by `Verify Details
+screen contains $variable_name`, with no destination resource ID. After a tap
+following capture and a completed screen-visibility assertion, the comparison
+requires a fresh hierarchy with the source collection absent and searches exact
+visible text through hierarchy, then OCR. Missing screen proof or text blocks;
+a whole-screen text hit alone cannot establish navigation. Screen identity may
+still depend on the existing visual assessor. `*-captured-comparison.json`
+records the comparison and its navigation confirmation flag.
+Grounded captured-text comparisons, text captures and sequential taps also save
+zoomed `*-crop.png` evidence, a `*-with-context.png` screenshot with red target
+bounds, and JSON recording source/bounds/result. `step-results.json` links these
+artifacts. Comparison crops use the actual matched hierarchy/OCR region; tap
+images are captured before execution and do not alone prove action success.
+The reusable `src/grounded_evidence.py` helper never guesses missing bounds;
+image/grounding failures are recorded as `crop_error` in the evidence JSON.
+
+Captured-title assertions prefer full normalized title matches (hierarchy,
+then OCR). An explicit trailing `…` or `...` may match a prefix of the captured
+title after case/whitespace normalization. Prefix evidence requires at least
+12 alphanumeric characters, three words and 60% of the full normalized title;
+these are conservative heuristics, not a guarantee of unique vendor identity.
+Unmarked partial strings, ambiguous visible matches and conflicting full titles
+do not pass. Evidence records `match_type: truncated_prefix` and both strings;
+it never reports a prefix as an exact full-title match. Existing destination
+confirmation and source-collection exclusion still apply.
+The shared assertion-polarity guard scopes negation to an evidence clause:
+`title matched; source collection absent` does not negate the title match.
+Actual expected-value absence still rejects a positive assertion. Expected
+labels are protected before clause parsing so punctuation or a word such as
+`No` inside a product name does not itself change assertion polarity.
+
+The updated swimlane case targets the third item from the **observed collection
+start**, even when only two cards fit on screen. Duplicate identities, lost
+overlap, changed order, clipping or exhausted budgets block. The same helper
+supports horizontal and vertical lists. The boundary is inferred from observed
+non-movement, not an authoritative backend index: stalled gestures can mimic an
+edge. It does not prove an absolute fourth parent, and requires live-device
+validation on the target layouts.
+
+An unreadable final edge fragment after an already identified target may be
+excluded from the selection window; it is recorded in `ignored_edges` and never
+counted as an item. Unknown items before the target or inside the sequence still
+block. This permits capture/tap of a fully exposed tracked item even when a tiny
+piece of the following card has no title node.
+
 ## Current scope
 
 | Case | Journey | Evidence status |
@@ -61,6 +141,117 @@ python3 -m src.main \
 case execution. Use `--serial SERIAL` when more than one device is connected.
 The default app ID is `com.hungerstation.android.web.debug`; use `--app-id` to
 select another installed package.
+
+## Test Case Language (Controlled Natural Language)
+
+Write human-readable steps using the supported phrases below. This is the
+**Test Case Language**, not the AI system prompt: action words map to the
+capability registry in `src/capabilities.py`. The AI interprets supported intent;
+validation checks the plan, and the controlled parser provides a fallback.
+Use the canonical forms for the most predictable mapping. Correct wording helps
+planning; it does not guarantee a passing test or support every UI structure.
+
+### Authoring rules
+
+- Put one action or assertion on each numbered line under `Steps:`.
+- Use `Tap`, `Verify`, `Scroll`, `Seek item`, `Capture ... as`, `Set up`,
+  `Wait until`, and `Recover` as shown below. Arbitrary synonyms such as `check
+  everything`, `handle it`, or `make sure it works` are not fallback grammar.
+- Name the target explicitly. Prefer the visible label; add a resource-ID hint
+  when labels are missing, dynamic or ambiguous. A hint identifies an existing
+  view; it does not create one. No destination ID is required for a supported
+  whole-screen captured-title comparison.
+- In contains assertions, leave the target unquoted and quote the expected
+  literal: `Verify first restaurant item contains "Ad".` Do not quote both the
+  target and value; the current fallback extracts the first quoted value.
+- State scroll direction and container. Do not combine navigation, selection
+  and verification in one sentence.
+- Put every required check in `Steps:`. Use `Expected result:` to summarize;
+  do not rely on prose there to add missing assertions.
+- Use lowercase variable names such as `vendor_title`; capture with `as` before
+  referencing `$vendor_title`. Captured variables are local to each attempt.
+- Keep wording identical when an option is tapped and then asserted selected.
+
+### Phrase-to-capability reference
+
+Replace `<...>` with your own target/value. These are templates, not literal UI labels.
+
+| Canonical phrase | Capability | Contract / example |
+|---|---|---|
+| `Tap <target>.` | `tap` | `Tap Apply.` Use a label or an unambiguous ID hint. |
+| `Recover safely from any optional foreground sheet.` | `recover_optional` | Optional checkpoint; added after initial navigation if omitted. The runner also checks unexpected interruptions before each step. |
+| `Verify <target> is visible.` | `assert_visible` | `Verify Filters pill is visible.` `is open` also maps here, e.g. `Verify Menu screen is open.` |
+| `Verify <target> is hidden.` | `assert_hidden` | `Verify Filters sheet is hidden.` `is closed` is also supported. |
+| `Verify <target> contains "<value>".` | `assert_contains` | `Verify Filters pill contains "1".` Scope belongs to the named target, not arbitrary screen text. |
+| `Verify <target> does not contain "<value>".` | `assert_not_contains` | `Verify first restaurant item does not contain "Ad".` OCR missing a label alone does not prove absence. |
+| `Verify <option> is selected.` | `assert_selected` | Place after `Tap <same option>.` Requires selection evidence, not label visibility alone. |
+| `Scroll <direction> within <collection>.` | `scroll` | `Scroll down within vertical restaurant list.` Horizontal directions: `left` / `right`; vertical: `up` / `down`. |
+| Automatic proof after `Scroll ...` | `assert_scrolled` | Compiler inserts/positions this directly after the scroll. Do not add a standalone free-form `Verify scrolling worked` sentence; it is not fallback grammar. |
+| `Scroll <direction> within <parent> until <child> is visible.` | `scroll_until_visible` | `Scroll down within Vendors RecyclerView until horizontal_scroll is visible (resource-id hint: horizontal_scroll).` Plan `target` is child; `value` is parent. Five-swipes search limit. |
+| `Seek item <number> in <collection> by scrolling <direction>.` | `seek_item` | `Seek item 3 in horizontal_scroll by scrolling left (resource-id hints: horizontal_scroll, vendor_name).` Requires an identity field; bounded tracking from an observed start, not a backend index. |
+| `Capture <item target> as <variable>.` | `capture_text` | `Capture tracked item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).` Requires one text field in the scoped item. |
+| `Set up <state> view (<side> toggle option) as the initial state and verify it is selected.` | `set_control` / `setup` | `Set up card view (left toggle option) as the initial state and verify it is selected.` Current control executor supports an explicit two-state transition. |
+| `Tap <state> view (<side> toggle option) to change to <state> view.` | `set_control` / `action` | `Tap row view (right toggle option) to change to row view.` Include the paired initial setup and change assertion. `mode` / `layout` can replace `view`; states use a single word or hyphenated name. |
+| `Verify <target> change from <initial> to <new>.` | `assert_changed` | `Verify restaurant items change from card view to row view.` Requires observed content or geometry change. |
+| `Wait until <collection> change and finish loading.` | `wait_changed` | `Wait until restaurant items change and finish loading.` Loading completion must have grounded evidence; elapsed time alone is not proof. |
+
+### Item positions and captured values
+
+- `first item` / `third visible item of <collection>` address the current visible
+  window. A third-visible target blocks when three usable items are not exposed.
+- To reach an item across scroll windows, use `Seek item 3 ...`, then refer to
+  **`tracked item of <same collection>`** for both capture and tap. Do not add a
+  second ordinal to `tracked item`.
+- `Seek item` infers the start from repeated non-movement, then merges overlapping
+  identities. Duplicate identities, lost overlap or unsafe geometry block. It
+  does not provide an authoritative absolute backend index.
+- `Capture vendor_title in tracked item 3 ...` is not canonical grammar. Use
+  `Capture tracked item of <collection> as vendor_title ...`.
+- After navigation: `Verify Menu screen is open.` followed by `Verify Menu
+  screen contains $vendor_title.` The captured-title path prefers full text and
+  permits sufficiently descriptive explicit ellipsis prefixes. It is not a
+  general fuzzy matcher and does not relax ordinary `Ad`, count or price checks.
+- `assert_not_contains` with a captured-title variable is currently unsupported;
+  do not infer negative captured-title results from missing OCR.
+
+### Copyable example
+
+```text
+TestRail ID: YOUR_CASE_ID
+Title: Open a collection item and verify its destination title
+
+Preconditions:
+- The app is installed and the user is already logged in.
+- Home is displayed after launch.
+
+Steps:
+1. Tap Restaurants.
+2. Recover safely from any optional foreground sheet.
+3. Scroll down within Vendors RecyclerView until horizontal_scroll is visible (resource-id hint: horizontal_scroll).
+4. Verify horizontal_scroll is visible (resource-id hint: horizontal_scroll).
+5. Seek item 3 in horizontal_scroll by scrolling left (resource-id hints: horizontal_scroll, vendor_name).
+6. Capture tracked item of horizontal_scroll as vendor_title (resource-id hints: horizontal_scroll, vendor_name).
+7. Tap tracked item of horizontal_scroll (resource-id hint: horizontal_scroll).
+8. Verify Menu screen is open.
+9. Verify Menu screen contains $vendor_title.
+
+Expected result:
+- The tracked item opens its destination and the captured title is displayed.
+```
+
+These labels and IDs belong to this example; replace them for your app. For
+repeatable targeting, app layouts should expose stable, descriptive resource IDs
+for controls, collections, item fields and modal controls. IDs are grounding
+hints, not required knowledge of Android/iOS implementation code.
+
+### Review before running
+
+Run `python3 -m src.main --case cases/YOUR_CASE.txt --plan-only`. Check action
+order, assertion polarity, scope, directions, option values and variable binding.
+`plan_source: controlled_fallback` is valid when every step was understood;
+`planner_errors` records earlier AI failures. Unsupported numbered wording makes
+the fallback reject the whole case rather than silently execute a partial plan.
+New interaction types still need a reusable capability/executor extension.
 
 ## Plan, then execute
 
