@@ -1,4 +1,5 @@
 """Observe/decide/act Android PoC with an optional UIAutomator2 hierarchy service."""
+from .control_grounding import named_control
 from .debug import debug_print
 from .collections import (CollectionError, ordinal, resolve_collection, resolve_item,
                           swipe_points, scroll_changed, descendants, capture_item_text)
@@ -1997,6 +1998,13 @@ def semantic_tap_decision(obs,target,hints=()):
         if len(matches)>1:
             raise Blocked('Multiple '+target+' labels found; tap is ambiguous.')
 
+    typed=named_control(nodes,target)
+    if typed is not None:
+        return ({'action':'tap','node':typed['node'],'direction':'none',
+                 'reason':'Tap '+target+' using native control type and resource-id.',
+                 'evidence':typed['resource_id']+'; '+typed['class_name']},
+                {'source':'generic_tap','localization':'named_native_control'})
+
     id_target,id_evidence=resource_id_candidate(
         nodes,target,(*hints,*variants[1:]))
     if id_target is not None:
@@ -2702,6 +2710,27 @@ GROUNDING_ERRORS=(
     'Interruption heading is outside the selected container',
     'Recovery target is outside the foreground container or disabled',
 )
+
+
+def retry_uncertain_interruption(assessment, action, history, step_id, limit=2):
+    """Reobserve a model-claimed popup before trusting stale foreground nodes.
+
+    Never navigates or dismisses without a grounded foreground container.
+    """
+    if not action or assessment.get('kind')!='optional':
+        return action
+    decision,usage=action
+    if decision.get('action')!='blocked' or not any(
+            decision.get('reason','').startswith(e) for e in GROUNDING_ERRORS):
+        return action
+    count=sum(h.get('usage',{}).get('source')=='interruption_reobserve'
+              and h.get('usage',{}).get('step_id')==step_id for h in history)
+    if count>=limit:
+        return action
+    return ({'action':'wait','node':None,'direction':'none',
+             'reason':'Foreground interruption is uncertain; capture fresh screenshot and hierarchy.',
+             'evidence':'No dismissal or underlying test action authorized.'},
+            {'source':'interruption_reobserve','step_id':step_id})
 
 
 def ignore_ungrounded_optional_after_back(
@@ -3902,6 +3931,8 @@ def run_sequential_plan(
                     recovery_assessment=recovery_assessor(obs,history)
                     assessment=recovery_assessment
                     recovery_action=recovery.handle(recovery_assessment,obs)
+                    recovery_action=retry_uncertain_interruption(
+                        recovery_assessment,recovery_action,history,step['id'])
                     fallback=optional_grounding_back_fallback(
                         recovery_assessment,recovery_action,obs,history)
                     if fallback is not None:

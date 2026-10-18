@@ -1,5 +1,6 @@
 """Generic hierarchy-backed modal identity and selection assertions."""
 import re
+from .control_grounding import named_control
 from .recovery import strong_modal_candidate
 
 MODAL = re.compile(r'bottom[_ -]?sheet|dialog|modal|popup', re.I)
@@ -66,10 +67,15 @@ def selected_assertion(step, obs):
     nodes = obs.get('nodes', [])
     matches = [n for n in nodes if target in (normalized(n.get('text', '')), normalized(n.get('description', '')))]
     if len(matches) != 1:
-        return None
+        typed=named_control(nodes,step.get('target',''))
+        if typed is None:
+            return None
+        matches=[typed]
     label = matches[0]
     if label.get('selected') or label.get('checked'):
         return verdict('passed', step['target'], 'The grounded option is selected/checked in accessibility state.')
+    if re.search(r'checkbox|radiobutton|switch',label.get('class_name',''),re.I) and 'checked' in label:
+        return verdict('failed',step['target'],'The grounded native control is unchecked.')
     # Radio/checkbox indicators often sit beside the label in its immediate row.
     siblings = [n for n in nodes if label.get('parent') is not None
                 and n.get('parent') == label.get('parent')
