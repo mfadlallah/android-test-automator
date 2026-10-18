@@ -80,3 +80,20 @@ class ModelEvidenceTests(unittest.TestCase):
         retry=compact_chat_request(payload)
         self.assertIsNotNone(retry)
         self.assertEqual(retry['messages'][0]['images'],['keep-image'])
+
+
+class PrefixedAssertionEvidenceTests(unittest.TestCase):
+    def test_retry_compacts_both_comparison_sides_and_keeps_images(self):
+        from src.model_evidence import compact_chat_request
+        nodes=[{'node':i,'text':'Visible label','resource_id':'example:id/repeated_name','checked':False} for i in range(80)]
+        payload={'messages':[{'role':'user','content':label+' scoped screen evidence: '+json.dumps({'nodes':nodes}), 'images':['original-image']} for label in ['BEFORE','CURRENT']]}
+        retry=compact_chat_request(payload)
+        self.assertIsNotNone(retry)
+        for message,label in zip(retry['messages'],['BEFORE','CURRENT']):
+            prefix,body=message['content'].split(': ',1)
+            self.assertEqual(prefix,label+' scoped screen evidence')
+            table=json.loads(body)['nodes']
+            self.assertEqual(len(table['rows']),80)
+            self.assertIn('checked',table['columns'])
+            self.assertEqual(message['images'],['original-image'])
+        self.assertLess(len(json.dumps(retry)),len(json.dumps(payload)))

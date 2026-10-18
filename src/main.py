@@ -1537,7 +1537,7 @@ def assess_plan_assertion(
                 import io
                 old=Image.open(io.BytesIO(before['png'])).crop(tuple(before_bounds)).convert('RGB')
                 current=Image.open(io.BytesIO(obs['png'])).crop(tuple(crop_bounds)).convert('RGB')
-                old.thumbnail((900,1400)); current.thumbnail((900,1400))
+                old.thumbnail((600,1000)); current.thumbnail((600,1000))
                 pair=Image.new('RGB',(old.width+current.width,max(old.height,current.height)), 'white')
                 pair.paste(old,(0,0)); pair.paste(current,(old.width,0))
                 output=io.BytesIO();pair.save(output,format='PNG');current_image=output.getvalue()
@@ -1690,6 +1690,10 @@ def assess_plan_assertion(
             compact_bounds=crop_bounds if label=='CURRENT' else before_bounds
             evidence=compact_assertion_observation(
                 item,step,compact_bounds)
+            # Encode comparative hierarchy losslessly before the first request.
+            if comparative:
+                from .model_evidence import compact_evidence
+                evidence=compact_evidence(evidence)
             if label=='CURRENT' and crop_ocr:
                 evidence['crop_ocr']=[{
                     'text':str(row.get('text',''))[:240],

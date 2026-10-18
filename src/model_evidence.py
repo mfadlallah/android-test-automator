@@ -82,11 +82,16 @@ def compact_chat_request(payload):
     for message in result.get('messages', []):
         if message.get('role') != 'user' or not isinstance(message.get('content'), str):
             continue
+        prefix=''
+        content=message['content']
+        if content.startswith(('BEFORE scoped screen evidence: ', 'CURRENT scoped screen evidence: ')):
+            prefix,content=content.split(': ',1)
+            prefix+=': '
         try:
-            evidence = json.loads(message['content'])
+            evidence = json.loads(content)
         except ValueError:
             continue
-        compact = json.dumps(compact_evidence(evidence), ensure_ascii=False, separators=(',', ':'))
+        compact = prefix+json.dumps(compact_evidence(evidence), ensure_ascii=False, separators=(',', ':'))
         if len(compact) < len(message['content']):
             message['content'] = compact
             changed = True
