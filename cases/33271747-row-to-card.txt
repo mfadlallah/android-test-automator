@@ -15,9 +15,9 @@ Steps:
 2. Recover safely from any optional foreground sheet.
 3. Tap Row Checkbox.
 4. Verify Row Checkbox is selected.
-5. Tap Card Checkbox is selected.
+5. Tap Card Checkbox.
 6. Verify Card Checkbox is selected.
-7. Verify that within Vendors RecyclerView change from row view to card view.
+7. Verify that Vendors RecyclerView changed from row view to card view.
 8. Scroll down within Vendors RecyclerView.
 
 Expected result:

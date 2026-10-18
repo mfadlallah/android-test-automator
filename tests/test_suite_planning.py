@@ -20,9 +20,15 @@ class SuitePlanningTests(unittest.TestCase):
                 else:
                     self.assertNotIn('seek_item',allowed);self.assertNotIn('seek_item',caps)
                 if 'card-to-row' in case.name or 'row-to-card' in case.name:
-                    self.assertEqual(caps.count('set_control'),2)
-                    action=next(s for s in plan['steps'] if s['capability']=='set_control' and s['role']=='action')
-                    self.assertEqual(action['value'],'row' if 'card-to-row' in case.name else 'card')
+                    if 'Checkbox' in case.read_text():
+                        self.assertNotIn('set_control',caps)
+                        self.assertEqual(caps.count('assert_selected'),2)
+                        self.assertEqual(caps.count('tap'),3)
+                        self.assertIn('assert_changed',caps)
+                    else:
+                        self.assertEqual(caps.count('set_control'),2)
+                        action=next(s for s in plan['steps'] if s['capability']=='set_control' and s['role']=='action')
+                        self.assertEqual(action['value'],'row' if 'card-to-row' in case.name else 'card')
                 if 'sort-restaurants' in case.name:
                     self.assertEqual(caps.count('tap'),4)
                     self.assertEqual([s['value'] for s in plan['steps'] if s['capability']=='assert_not_contains'],['Ad'])

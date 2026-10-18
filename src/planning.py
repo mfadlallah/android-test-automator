@@ -106,6 +106,9 @@ Every set_control step must put the semantic state name in value, such as
 Use set_control only for an explicit two-state transition written as
 "from X to Y" with setup and action steps. For selecting a filter/sort/list
 option, use tap followed by assert_selected; do not use set_control.
+Explicit numbered taps on named checkboxes or radio buttons must remain tap
+steps, followed by the requested assert_selected steps. A transition in the
+title does not authorize replacing these steps with positional set_control.
 For contains/not-contains assertions, put the exact expected text in value and
 the scoped region in target, for example target="first restaurant item" and
 value="Ad". Use assert_visible/assert_hidden for sheets and pills. Use
@@ -529,9 +532,10 @@ def compile_controlled_case(case_text):
             body=re.sub(r'(?i)^verify(?:\s+that)?\s+','',line)
             body=re.sub(r'(?i)\b(is|are)\s+now\s+(?=visible|hidden|selected|closed|open)',r'\1 ',body)
             body=re.sub(r'(?i)\s+now\s+(?=contains\b)',' ',body)
-            change=re.fullmatch(r'(?i)(.+?)\s+change\s+from\s+(.+?)\s+to\s+(.+)',body)
+            change=re.fullmatch(r'(?i)(.+?)\s+(?:change|changes|changed|has changed|have changed)\s+from\s+(.+?)\s+to\s+(.+)',body)
             if change:
-                add('assert_changed','assertion',_controlled_target(change[1]),success=line)
+                target=re.sub(r'(?i)^(?:items?\s+)?within\s+', '', change[1])
+                add('assert_changed','assertion',_controlled_target(target),success=line)
                 continue
             negative=re.match(
                 r'(?i)^(?P<target>.+?)\s+does\s+not\s+contain\s+'
