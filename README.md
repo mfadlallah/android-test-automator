@@ -1,4 +1,4 @@
-# Mobile AI Testing Agent — Local Plan-Driven PoC
+# Mobile AI Testing Agent
 
 Run supported human-readable Android tests locally using Ollama planning,
 Python execution, ADB, UIAutomator2 hierarchy, and Apple Vision OCR.
